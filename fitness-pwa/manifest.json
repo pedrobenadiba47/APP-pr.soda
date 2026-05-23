@@ -1,0 +1,32 @@
+{
+  "name": "pr.soda — Entrenamiento Personal",
+  "short_name": "pr.soda",
+  "description": "App de entrenamiento personal con timer, calendario y rutinas",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#A7B36B",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "icons/icon-light.png",
+      "sizes": "5001x5001",
+      "type": "image/png",
+      "purpose": "any",
+      "media": "(prefers-color-scheme: light)"
+    },
+    {
+      "src": "icons/icon-dark.png",
+      "sizes": "5001x5001",
+      "type": "image/png",
+      "purpose": "any",
+      "media": "(prefers-color-scheme: dark)"
+    },
+    {
+      "src": "icons/icon-light.png",
+      "sizes": "5001x5001",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

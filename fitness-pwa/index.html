@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#ffffff" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="pr.soda" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png" />
+  <link rel="stylesheet" href="css/styles.css" />
+  <title>pr.soda</title>
+</head>
+<body>
+
+  <!-- ======= HEADER ======= -->
+  <header class="app-header">
+    <div class="app-logo">
+      <svg class="logo-svg" viewBox="0 0 1009.06 510.11" xmlns="http://www.w3.org/2000/svg">
+        <path class="logo-dark" d="M83.39,348.09c-1.87-3.45-.36-8.92.1-12.26l102.79.81c10.15,24.02,30.51,43.19,56.25,43.3l89.77.35c3.84.01,6.44-3.81,5.12-7.41-22.1-60.47-21.39-123.94.21-183.76,1.29-3.58-1.27-7.36-5.08-7.39l-77.64-.49,95.15-147.68c1.74-2.7.95-6.31-1.77-8.03L309.52.9c-2.68-1.7-6.24-.93-7.97,1.74l-145.03,223.15-125.26.12c-16.61.02-29.94,10.6-31.26,27.41l.25,55.98c.08,17.91,17.3,28.76,34.48,26.53,3.9-.51,9.33.56,9.25,4.57l-.56,26.7c-.3,14.42,29.71,31.21,47.01,49,42.26,43.46,28.37,81.84,46.3,82.71,18.59.91,13.11-35.49,11.42-46.85-6.32-42.51-28.91-78.97-64.76-103.88Z"/>
+        <path class="logo-dark" d="M559.31,52.58c7.08-.42,13.06,5.3,13.06,12.42v432.67c0,7.08-5.94,12.79-12.98,12.42-85.7-4.73-163.19-57.05-197.86-135.52-26.8-60.6-26.08-129.23.83-189.53,37.55-77.6,111.71-127.3,196.95-132.45Z"/>
+        <path class="logo-accent" d="M822.21,78.17l-.15,409.57c0,13.14-12.73,22.18-24.5,22.25l-3.84.11c-13.76-.92-24.8-11.36-24.83-25.76l-.22-137.38-164.17.14c-5.81,0-10.53-4.71-10.53-10.52v-110.52c0-5.81,4.71-10.52,10.52-10.52h164.21s.18-139.44.18-139.44c1.22-12.62,9.3-21.07,21.44-23.06l2.32-.48c15.57-.26,29.56,8.52,29.56,25.61Z"/>
+        <rect class="logo-accent" x="831.05" y="112.33" width="53.45" height="338.09" rx="26.72" ry="26.72"/>
+        <rect class="logo-accent" x="955.61" y="112.31" width="53.45" height="225.47" rx="26.72" ry="26.72"/>
+        <rect class="logo-accent" x="955.61" y="348.51" width="53.45" height="101.9" rx="26.72" ry="26.72"/>
+        <rect class="logo-accent" x="893.33" y="52.61" width="53.45" height="457.5" rx="7.06" ry="7.06"/>
+      </svg>
+    </div>
+    <span id="page-title">Timer</span>
+  </header>
+
+  <!-- ======= MAIN CONTENT ======= -->
+  <main id="app-content">
+
+    <!-- ===== TIMER SECTION ===== -->
+    <section id="section-timer" class="section active">
+      <div class="tab-bar">
+        <button class="tab-btn active" data-tab="stopwatch">Cronómetro</button>
+        <button class="tab-btn" data-tab="interval">Timer</button>
+      </div>
+
+      <!-- STOPWATCH -->
+      <div id="tab-stopwatch" class="tab-content active">
+        <div class="clock-display">
+          <div class="sw-time-wrap">
+            <span id="sw-main">00:00</span><span id="sw-ms" class="sw-ms">.00</span>
+          </div>
+        </div>
+        <div class="sw-controls-row">
+          <button id="sw-lap" class="sw-btn-secondary" disabled>LAP</button>
+          <button id="sw-toggle" class="btn-toggle" aria-label="Play / Pause">
+            <svg id="sw-icon-play" width="30" height="30" viewBox="0 0 24 24" fill="currentColor">
+              <polygon points="5 3 19 12 5 21 5 3"/>
+            </svg>
+            <svg id="sw-icon-pause" class="hidden" width="30" height="30" viewBox="0 0 24 24" fill="currentColor">
+              <rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>
+            </svg>
+          </button>
+        </div>
+        <div id="sw-laps" class="sw-laps"></div>
+      </div>
+
+      <!-- TIMER -->
+      <div id="tab-interval" class="tab-content">
+        <div id="interval-config" class="card">
+          <div class="card-title">Configurar Timer</div>
+          <div class="config-grid">
+            <div class="config-group config-group--full">
+              <label>Preparación</label>
+              <div class="sec-field">
+                <input type="number" id="prep-sec" class="sec-input" min="0" value="10" />
+                <span>segundos</span>
+              </div>
+            </div>
+            <div class="config-group">
+              <label>Ejercicio</label>
+              <div class="sec-field">
+                <input type="number" id="ex-sec" class="sec-input" min="1" value="30" />
+                <span>segundos</span>
+              </div>
+            </div>
+            <div class="config-group">
+              <label>Descanso</label>
+              <div class="sec-field">
+                <input type="number" id="rest-sec" class="sec-input" min="0" value="15" />
+                <span>segundos</span>
+              </div>
+            </div>
+            <div class="config-group">
+              <label>Sets</label>
+              <input type="number" id="sets-count" min="1" value="3" class="input-solo" />
+            </div>
+            <div class="config-group">
+              <label>Rounds</label>
+              <input type="number" id="rounds-count" min="1" value="1" class="input-solo" />
+            </div>
+          </div>
+          <button id="interval-go" class="btn btn-primary btn-xl btn-full">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            Iniciar
+          </button>
+        </div>
+
+        <!-- RUNNING -->
+        <div id="interval-running" class="hidden">
+          <!-- Tiempo total del circuito — chip arriba -->
+          <div class="it-circuit-chip">
+            <span id="it-total-time">00:00</span>
+          </div>
+          <!-- Fase activa -->
+          <div id="phase-badge" class="phase-badge phase-exercise">Ejercicio</div>
+          <div class="progress-ring-container">
+            <svg class="progress-ring" viewBox="0 0 250 250">
+              <circle class="progress-ring-bg" cx="125" cy="125" r="115" />
+              <circle id="progress-arc" class="progress-ring-fill" cx="125" cy="125" r="115" />
+            </svg>
+            <div class="progress-inner">
+              <span id="it-display">00:30</span>
+            </div>
+          </div>
+          <div class="status-row">
+            <div class="status-chip">
+              <span class="status-label">Set</span>
+              <span id="it-set">1 / 3</span>
+            </div>
+            <div class="status-chip">
+              <span class="status-label">Round</span>
+              <span id="it-round">1 / 1</span>
+            </div>
+          </div>
+          <!-- Single toggle button + reset -->
+          <div class="it-controls">
+            <button id="it-pause" class="btn-it-toggle" aria-label="Pause / Resume">
+              <svg id="it-icon-pause" width="26" height="26" viewBox="0 0 24 24" fill="currentColor">
+                <rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>
+              </svg>
+              <svg id="it-icon-play" class="hidden" width="26" height="26" viewBox="0 0 24 24" fill="currentColor">
+                <polygon points="5 3 19 12 5 21 5 3"/>
+              </svg>
+            </button>
+            <button id="it-reset" class="btn-it-reset" aria-label="Reset">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+                <polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.95"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== CALENDAR SECTION ===== -->
+    <section id="section-calendar" class="section">
+      <div class="view-toggle">
+        <button class="view-btn active" data-view="month">Mes</button>
+        <button class="view-btn" data-view="week">Semana</button>
+      </div>
+      <div class="calendar-nav">
+        <button id="cal-prev" class="nav-btn">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <span id="cal-title" class="cal-title"></span>
+        <button id="cal-next" class="nav-btn">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
+        </button>
+      </div>
+      <div id="calendar-grid"></div>
+      <div id="day-detail" class="hidden">
+        <div class="day-detail-header">
+          <span id="day-detail-title"></span>
+          <button id="day-detail-close" class="icon-btn">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <div id="day-events-list"></div>
+        <div style="padding:0 16px 16px">
+          <button id="add-event-btn" class="btn btn-primary btn-full">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Agregar evento
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== USERS SECTION ===== -->
+    <section id="section-users" class="section">
+      <div id="users-list-view">
+        <div id="users-grid"></div>
+      </div>
+
+      <div id="user-detail-view" class="hidden">
+        <button id="back-to-users" class="back-btn-standalone">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+          Volver
+        </button>
+        <div class="user-profile-header">
+          <div id="user-avatar-large" class="avatar-large"></div>
+          <h2 id="user-detail-name"></h2>
+          <div class="user-actions-row">
+            <button id="edit-user-btn" class="btn btn-secondary btn-sm">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+              Editar
+            </button>
+            <button id="delete-user-btn" class="btn btn-danger btn-sm">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+              Eliminar
+            </button>
+          </div>
+        </div>
+        <div class="routines-header">
+          <h3>Rutinas</h3>
+          <div style="display:flex;gap:6px">
+            <button id="copy-routine-btn" class="btn btn-secondary btn-sm">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+              Copiar
+            </button>
+            <button id="add-routine-btn" class="btn btn-primary btn-sm">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Nueva
+            </button>
+          </div>
+        </div>
+        <div id="routines-list"></div>
+      </div>
+
+      <div id="routine-detail-view" class="hidden">
+        <div class="routine-header-bar">
+          <button id="back-to-user" class="back-btn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+            Volver
+          </button>
+          <h3 id="routine-detail-name"></h3>
+          <button id="edit-routine-btn" class="btn btn-secondary btn-sm">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            Editar
+          </button>
+        </div>
+        <div id="exercises-list"></div>
+        <button id="add-exercise-btn" class="btn btn-primary btn-full" style="margin-top:0">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Ejercicio
+        </button>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <button id="add-break-btn" class="btn btn-secondary btn-full" style="margin-top:0">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="10" y1="15" x2="10" y2="9"/><line x1="14" y1="15" x2="14" y2="9"/></svg>
+            Pausa
+          </button>
+          <button id="add-speed-btn" class="btn btn-secondary btn-full" style="margin-top:0">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+            Velocidad
+          </button>
+        </div>
+        <button id="assign-to-cal-btn" class="btn btn-secondary btn-full hidden" style="margin-top:8px">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg>
+          Asignar al calendario
+        </button>
+        <button id="pdf-routine-btn" class="btn btn-secondary btn-full" style="margin-top:8px">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Descargar PDF
+        </button>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- FAB — fuera del contenedor scrollable para que siempre sea visible -->
+  <button id="add-user-btn" class="fab hidden" aria-label="Agregar">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+      <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+    </svg>
+  </button>
+
+  <!-- ======= BOTTOM NAV ======= -->
+  <nav class="bottom-nav">
+    <button class="nav-item active" data-section="timer">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/>
+      </svg>
+      <span>Reloj</span>
+    </button>
+    <button class="nav-item" data-section="calendar">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <rect x="3" y="4" width="18" height="18" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/>
+      </svg>
+      <span>Agenda</span>
+    </button>
+    <button class="nav-item" data-section="users">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <circle cx="9" cy="7" r="4"/><path d="M2 21v-2a4 4 0 014-4h6a4 4 0 014 4v2"/>
+        <path d="M19 8v6M22 11h-6"/>
+      </svg>
+      <span>Usuarios</span>
+    </button>
+  </nav>
+
+  <!-- ======= MODAL ======= -->
+  <div id="modal-overlay" class="modal-overlay hidden">
+    <div id="modal-box" class="modal-box">
+      <div class="modal-header">
+        <h3 id="modal-title"></h3>
+        <button id="modal-close" class="icon-btn">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+      <div id="modal-body"></div>
+    </div>
+  </div>
+
+  <!-- ======= TOAST ======= -->
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="js/timer.js"></script>
+  <script src="js/calendar.js"></script>
+  <script src="js/users.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
