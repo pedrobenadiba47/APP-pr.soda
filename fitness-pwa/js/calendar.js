@@ -1,5 +1,5 @@
 /* ============================================================
-   CALENDAR MODULE  —  pr.soda
+   CALENDAR MODULE  —  PR.47
    Eventos: "Mi entrenamiento" (rutina de Pedro) +
             "Clases a alumnos" (con horario, rutina y alumno)
 ============================================================ */

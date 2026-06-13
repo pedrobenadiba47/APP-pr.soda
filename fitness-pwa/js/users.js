@@ -1,5 +1,5 @@
 ﻿/* ============================================================
-   USERS & ROUTINES MODULE  -  pr.soda
+   USERS & ROUTINES MODULE  -  PR.47
 ============================================================ */
 
 const Users = (() => {
@@ -33,13 +33,96 @@ const Users = (() => {
     localStorage.setItem(CLEAN_KEY, '1');
   }
 
+  /* ── Export / Import de rutinas (sin fotos) ────────────────────
+     Permite respaldar y transferir solo las rutinas (entrenador +
+     alumnos) entre instalaciones de la app, sin tocar fotos,
+     calendario ni configuración.                                 */
+  function stripRoutineItems(routines) {
+    return (routines || []).map(r => {
+      const clone = JSON.parse(JSON.stringify(r));
+      for (const item of (clone.items || clone.exercises || [])) {
+        delete item.photo;
+      }
+      return clone;
+    });
+  }
+
+  function exportRoutines() {
+    const data = {
+      exportedAt: new Date().toISOString(),
+      users: users.map(u => ({
+        name: u.name,
+        isTrainer: !!u.isTrainer,
+        color: u.color,
+        routines: stripRoutineItems(u.routines)
+      }))
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url;
+    a.download = `pr47-rutinas-${new Date().toISOString().slice(0,10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    App.toast('Rutinas exportadas');
+  }
+
+  function importRoutinesFile(file) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const data = JSON.parse(reader.result);
+        const imported = Array.isArray(data) ? data : (data.users || []);
+        let routinesAdded = 0, newUsers = 0;
+
+        for (const iu of imported) {
+          if (!iu || !iu.name) continue;
+          const importedRoutines = stripRoutineItems(iu.routines);
+
+          let target = users.find(u =>
+            u.name.trim().toLowerCase() === iu.name.trim().toLowerCase());
+
+          if (!target) {
+            target = {
+              id: uid(),
+              name: iu.name,
+              isTrainer: !!iu.isTrainer,
+              color: iu.color || PALETTE[users.length % PALETTE.length],
+              routines: []
+            };
+            users.push(target);
+            newUsers++;
+          }
+
+          target.routines = target.routines || [];
+          const existingIds = new Set(target.routines.map(r => r.id));
+          for (const r of importedRoutines) {
+            const rout = existingIds.has(r.id) ? { ...r, id: uid() } : r;
+            target.routines.push(rout);
+            existingIds.add(rout.id);
+            routinesAdded++;
+          }
+        }
+
+        save();
+        renderUsers();
+        App.toast(`Importadas ${routinesAdded} rutina(s)${newUsers ? ` · ${newUsers} usuario(s) nuevo(s)` : ''}`);
+      } catch (e) {
+        App.toast('No se pudo leer el archivo');
+      }
+    };
+    reader.readAsText(file);
+  }
+
   function initials(name) {
     return (name||'?').split(' ').map(w=>w[0]||'').join('').slice(0,2).toUpperCase();
   }
 
   /* â”€â”€ Color palette â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
   const PALETTE = [
-    '#A7B36B', // verde musgo (default)
+    '#28D2DB', // celeste eléctrico (default)
     '#5aabcc', // azul cielo
     '#e67e22', // naranja
     '#e74c3c', // rojo
@@ -66,7 +149,7 @@ const Users = (() => {
   /* â”€â”€ Seed inicial â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
   const SEED_KEY = 'fitpro_seeded_v1';
   const SEED_USERS = [
-    { name: 'Pedro Benadiba', isTrainer: true,  color: '#A7B36B', schedule: []    },
+    { name: 'Pedro Benadiba', isTrainer: true,  color: '#28D2DB', schedule: []    },
     { name: 'Juan',           isTrainer: false, color: '#5aabcc', schedule: [2]   }, // Mar
     { name: 'Ines',           isTrainer: false, color: '#e91e63', schedule: [2,4] }, // Mar, Jue
     { name: 'Elo',            isTrainer: false, color: '#e67e22', schedule: [1,4] }, // Lun, Jue
@@ -419,7 +502,7 @@ const Users = (() => {
   }
 
   const ROUT_PALETTE = [
-    '#A7B36B','#5aabcc','#e67e22','#e74c3c',
+    '#28D2DB','#5aabcc','#e67e22','#e74c3c',
     '#9b59b6','#2ecc71','#f1c40f','#1abc9c','#e91e63','#607d8b',
   ];
 
@@ -1017,8 +1100,8 @@ const Users = (() => {
   }
 
   /* â”€â”€ PDF export â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-  // SVG logo (all fills = #111 for print)
-  const PDF_LOGO_SVG = `<svg style="width:52px;height:auto;flex-shrink:0" viewBox="0 0 1009.06 510.11" xmlns="http://www.w3.org/2000/svg"><path fill="#040404" d="M83.39,348.09c-1.87-3.45-.36-8.92.1-12.26l102.79.81c10.15,24.02,30.51,43.19,56.25,43.3l89.77.35c3.84.01,6.44-3.81,5.12-7.41-22.1-60.47-21.39-123.94.21-183.76,1.29-3.58-1.27-7.36-5.08-7.39l-77.64-.49,95.15-147.68c1.74-2.7.95-6.31-1.77-8.03L309.52.9c-2.68-1.7-6.24-.93-7.97,1.74l-145.03,223.15-125.26.12c-16.61.02-29.94,10.6-31.26,27.41l.25,55.98c.08,17.91,17.3,28.76,34.48,26.53,3.9-.51,9.33.56,9.25,4.57l-.56,26.7c-.3,14.42,29.71,31.21,47.01,49,42.26,43.46,28.37,81.84,46.3,82.71,18.59.91,13.11-35.49,11.42-46.85-6.32-42.51-28.91-78.97-64.76-103.88Z"/><path fill="#040404" d="M559.31,52.58c7.08-.42,13.06,5.3,13.06,12.42v432.67c0,7.08-5.94,12.79-12.98,12.42-85.7-4.73-163.19-57.05-197.86-135.52-26.8-60.6-26.08-129.23.83-189.53,37.55-77.6,111.71-127.3,196.95-132.45Z"/><path fill="#8a9b4a" d="M822.21,78.17l-.15,409.57c0,13.14-12.73,22.18-24.5,22.25l-3.84.11c-13.76-.92-24.8-11.36-24.83-25.76l-.22-137.38-164.17.14c-5.81,0-10.53-4.71-10.53-10.52v-110.52c0-5.81,4.71-10.52,10.52-10.52h164.21s.18-139.44.18-139.44c1.22-12.62,9.3-21.07,21.44-23.06l2.32-.48c15.57-.26,29.56,8.52,29.56,25.61Z"/><rect fill="#8a9b4a" x="831.05" y="112.33" width="53.45" height="338.09" rx="26.72" ry="26.72"/><rect fill="#8a9b4a" x="955.61" y="112.31" width="53.45" height="225.47" rx="26.72" ry="26.72"/><rect fill="#8a9b4a" x="955.61" y="348.51" width="53.45" height="101.9" rx="26.72" ry="26.72"/><rect fill="#8a9b4a" x="893.33" y="52.61" width="53.45" height="457.5" rx="7.06" ry="7.06"/></svg>`;
+  // Logo PR.47 (PNG, embedded as data URI so it works in the standalone print document too)
+  const PDF_LOGO_SVG = `<img alt="PR.47" style="width:140px;height:auto;flex-shrink:0" src="data:image/png;base64,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" />`;
 
   function downloadRoutinePDF(rout, studentName) {
     const items = (() => {
@@ -1026,7 +1109,7 @@ const Users = (() => {
       if (!it) it = (rout.exercises || []).map(e => ({ ...e, type: 'exercise' }));
       return it;
     })();
-    const col         = rout.color || '#A7B36B';
+    const col         = rout.color || '#28D2DB';
     const trainerName = (users.find(u => u.isTrainer) || {}).name || 'Pedro Benadiba';
     const BL = { rest:'Descanso', warmup:'Entrada en calor', 'active-pause':'Pausa activa' };
     const dateStr = new Date().toLocaleDateString('es-AR', {day:'2-digit', month:'long', year:'numeric'});
@@ -1102,7 +1185,7 @@ const Users = (() => {
       const printHtml = '<!DOCTYPE html><html lang=”es”><head>' +
         '<meta charset=”UTF-8”>' +
         '<meta name=”viewport” content=”width=device-width,initial-scale=1”>' +
-        '<title>' + rout.name + ' — pr.soda</title>' +
+        '<title>' + rout.name + ' — PR.47</title>' +
         '<style>' +
         '*{box-sizing:border-box;margin:0;padding:0}' +
         'body{font-family:system-ui,-apple-system,Helvetica,Arial,sans-serif;background:#fff;color:#111;padding:28px 32px;max-width:700px;margin:0 auto}' +
@@ -1332,6 +1415,16 @@ const Users = (() => {
 
     // FAB (lives outside scroll container)
     document.getElementById('add-user-btn').addEventListener('click', () => openUserModal());
+
+    document.getElementById('export-routines-btn').addEventListener('click', exportRoutines);
+    document.getElementById('import-routines-btn').addEventListener('click', () => {
+      document.getElementById('import-routines-input').click();
+    });
+    document.getElementById('import-routines-input').addEventListener('change', e => {
+      const file = e.target.files[0];
+      if (file) importRoutinesFile(file);
+      e.target.value = '';
+    });
 
     document.getElementById('back-to-users').addEventListener('click', () => {
       curUser = null;

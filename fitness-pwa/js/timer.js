@@ -1,5 +1,5 @@
 /* ============================================================
-   TIMER MODULE  —  pr.soda
+   TIMER MODULE  —  PR.47
    Cronómetro: toggle play/pause, color inversion
    Timer: prep(azul) / ejercicio(verde) / descanso(rojo)
    + Tiempo total de circuito con countdown

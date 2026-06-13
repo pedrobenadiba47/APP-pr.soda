@@ -1,30 +1,42 @@
 {
-  "name": "pr.soda — Entrenamiento Personal",
-  "short_name": "pr.soda",
+  "name": "PR.47 — Entrenamiento Personal",
+  "short_name": "PR.47",
   "description": "App de entrenamiento personal con timer, calendario y rutinas",
   "start_url": "./",
   "display": "standalone",
-  "background_color": "#ffffff",
-  "theme_color": "#A7B36B",
+  "background_color": "#111111",
+  "theme_color": "#28D2DB",
   "orientation": "portrait",
   "icons": [
     {
       "src": "icons/icon-light.png",
-      "sizes": "5001x5001",
+      "sizes": "1024x1024",
       "type": "image/png",
       "purpose": "any",
       "media": "(prefers-color-scheme: light)"
     },
     {
       "src": "icons/icon-dark.png",
-      "sizes": "5001x5001",
+      "sizes": "1024x1024",
       "type": "image/png",
       "purpose": "any",
       "media": "(prefers-color-scheme: dark)"
     },
     {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
       "src": "icons/icon-light.png",
-      "sizes": "5001x5001",
+      "sizes": "1024x1024",
       "type": "image/png",
       "purpose": "maskable"
     }
