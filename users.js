@@ -1113,46 +1113,57 @@ const Users = (() => {
     const trainerName = (users.find(u => u.isTrainer) || {}).name || 'Pedro Benadiba';
     const BL = { rest:'Descanso', warmup:'Entrada en calor', 'active-pause':'Pausa activa' };
     const dateStr = new Date().toLocaleDateString('es-AR', {day:'2-digit', month:'long', year:'numeric'});
+    // SVG logo URL: absolute so funciona dentro del blob HTML al imprimir
+    const logoUrl = window.location.href.match(/^.*\//)[0] + 'icons/SVG/Recurso%207.svg';
+
     function buildItemsHTML(forScreen) {
       return items.map((item, idx) => {
         if (!item.type || item.type === 'exercise') {
+          const dropsetBadge = item.dropset
+            ? (forScreen
+                ? ' <span style="font-size:8px;font-weight:800;border:1.5px solid currentColor;border-radius:3px;padding:1px 4px;margin-left:5px;vertical-align:middle;text-transform:uppercase">+dropset</span>'
+                : ` <span style="font-size:9px;font-weight:800;color:#fff;background:#333;border-radius:3px;padding:2px 5px;margin-left:6px;vertical-align:middle;text-transform:uppercase">+dropset</span>`)
+            : '';
           return `
-            <div class="${forScreen ? 'pdf-card' : 'pc'}" style="${forScreen ? 'border-left-color' : 'border-left:4px solid'}:${col}${forScreen ? '' : ';margin-bottom:12px;padding:14px;border-radius:8px;background:#f7f7f7;page-break-inside:avoid'}">
+            <div class="${forScreen ? 'pdf-card' : 'pc'}" style="${forScreen ? `border-left-color:${col}` : `border-left:5px solid ${col};margin-bottom:12px;padding:14px 16px;border-radius:0 8px 8px 0;background:#f5f5f5;page-break-inside:avoid`}">
               <div ${forScreen ? 'class="pdf-info"' : ''}>
-                <div style="${forScreen ? '' : 'font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:2px;color:#bbb;margin-bottom:2px'}">Ejercicio ${idx + 1}</div>
-                <div ${forScreen ? 'class="pdf-name"' : 'style="font-size:14px;font-weight:800;color:#111;margin-bottom:5px"'}>${item.name}</div>
-                <div ${forScreen ? 'class="pdf-sets"' : 'style="font-size:20px;font-weight:900;letter-spacing:-1px;line-height:1"'} style="${forScreen ? 'color' : 'color'}:${col}">${item.sets} &times; ${item.reps}${item.dropset ? ' <span style="font-size:8px;font-weight:800;border:1.5px solid currentColor;border-radius:3px;padding:1px 4px;margin-left:5px;vertical-align:middle;text-transform:uppercase">+dropset</span>' : ''}</div>
-                ${item.note ? `<div ${forScreen ? 'class="pdf-note"' : 'style="font-size:11px;color:#999;margin-top:5px"'}>${item.note}</div>` : ''}
+                <div style="${forScreen ? '' : 'font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:2px;color:#888;margin-bottom:4px'}">Ejercicio ${idx + 1}</div>
+                <div ${forScreen ? 'class="pdf-name"' : 'style="font-size:15px;font-weight:800;color:#111;margin-bottom:6px"'}>${item.name}</div>
+                <div ${forScreen ? `class="pdf-sets" style="color:${col}"` : 'style="font-size:22px;font-weight:900;letter-spacing:-1px;line-height:1;color:#111"'}>${item.sets} &times; ${item.reps}${dropsetBadge}</div>
+                ${item.note ? `<div ${forScreen ? 'class="pdf-note"' : 'style="font-size:11px;color:#555;margin-top:6px;padding-top:6px;border-top:1px solid #ddd"'}>${item.note}</div>` : ''}
               </div>
             </div>`;
         } else if (item.type === 'speed-run') {
           return `
-            <div ${forScreen ? 'class="pdf-break"' : 'style="display:flex;align-items:center;gap:12px;margin-bottom:10px;padding:10px 14px;border-radius:7px;border:1.5px solid #c8d84a;page-break-inside:avoid"'}>
-              <span ${forScreen ? 'class="pdf-br-label"' : 'style="font-size:12px;font-weight:700;color:#666"'}>Pasadas de Velocidad</span>
-              <span ${forScreen ? 'class="pdf-br-dur"' : 'style="font-size:12px;color:#888;margin-left:auto"'}>${item.series} series &times; ${item.distance} ${item.distUnit}</span>
-              <span ${forScreen ? 'class="pdf-br-dur"' : 'style="font-size:11px;color:#aaa"'}>Descanso: ${item.rest} ${item.restUnit}</span>
+            <div ${forScreen ? 'class="pdf-break"' : 'style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px;padding:10px 14px;border-radius:7px;border:1.5px solid #999;page-break-inside:avoid"'}>
+              <span ${forScreen ? 'class="pdf-br-label"' : 'style="font-size:12px;font-weight:700;color:#222"'}>Pasadas de Velocidad</span>
+              <span ${forScreen ? 'class="pdf-br-dur"' : 'style="font-size:12px;font-weight:600;color:#444;margin-left:auto"'}>${item.series} series &times; ${item.distance} ${item.distUnit}</span>
+              <span ${forScreen ? 'class="pdf-br-dur"' : 'style="font-size:11px;color:#555"'}>Descanso: ${item.rest} ${item.restUnit}</span>
             </div>`;
         } else {
           return `
-            <div ${forScreen ? 'class="pdf-break"' : 'style="display:flex;align-items:center;gap:12px;margin-bottom:10px;padding:10px 14px;border-radius:7px;border:1.5px dashed #ddd;page-break-inside:avoid"'}>
-              <span ${forScreen ? 'class="pdf-br-label"' : 'style="font-size:12px;font-weight:700;color:#666"'}>${BL[item.type] || item.type}</span>
-              <span ${forScreen ? 'class="pdf-br-dur"' : 'style="font-size:12px;color:#aaa;margin-left:auto"'}>${item.duration} ${item.unit === 'min' ? 'min' : 'seg'}</span>
-              ${item.note ? `<div ${forScreen ? 'class="pdf-br-note"' : 'style="font-size:11px;color:#bbb;width:100%"'}>${item.note}</div>` : ''}
+            <div ${forScreen ? 'class="pdf-break"' : 'style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px;padding:10px 14px;border-radius:7px;border:1.5px dashed #bbb;page-break-inside:avoid"'}>
+              <span ${forScreen ? 'class="pdf-br-label"' : 'style="font-size:12px;font-weight:700;color:#222"'}>${BL[item.type] || item.type}</span>
+              <span ${forScreen ? 'class="pdf-br-dur"' : 'style="font-size:12px;font-weight:600;color:#444;margin-left:auto"'}>${item.duration} ${item.unit === 'min' ? 'min' : 'seg'}</span>
+              ${item.note ? `<div ${forScreen ? 'class="pdf-br-note"' : 'style="font-size:11px;color:#555;width:100%;margin-top:2px"'}>${item.note}</div>` : ''}
             </div>`;
         }
       }).join('');
     }
 
     function headerHTML(forScreen) {
+      const logo = forScreen
+        ? PDF_LOGO_SVG
+        : `<img src="${logoUrl}" alt="PR.47" style="height:44px;width:auto;flex-shrink:0;display:block" />`;
       return `
-        <div ${forScreen ? `class="pdf-header" style="border-bottom-color:${col}"` : `style="display:flex;align-items:center;gap:18px;margin-bottom:24px;padding-bottom:18px;border-bottom:3px solid ${col}"`}>
-          ${PDF_LOGO_SVG}
-          <div ${forScreen ? 'class="pdf-ht"' : 'style="flex:1"'}>
-            <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:2px;color:#aaa;margin-bottom:3px">Entrenador personal</div>
-            <div style="font-size:22px;font-weight:900;letter-spacing:-1px;color:#111">${trainerName}</div>
-            <div style="font-size:14px;font-weight:700;color:${col};margin-top:4px">${rout.name}</div>
-            ${rout.description ? `<div style="font-size:11px;color:#aaa;margin-top:2px">${rout.description}</div>` : ''}
-            ${studentName ? `<div style="display:inline-block;font-size:9px;font-weight:700;color:${col};background:${col}18;border:1px solid ${col}55;border-radius:4px;padding:2px 8px;margin-top:5px;text-transform:uppercase;letter-spacing:.5px">Para: ${studentName}</div>` : ''}
+        <div ${forScreen ? `class="pdf-header" style="border-bottom-color:${col}"` : `style="display:flex;align-items:center;gap:20px;margin-bottom:28px;padding-bottom:20px;border-bottom:3px solid ${col}"`}>
+          ${logo}
+          <div ${forScreen ? 'class="pdf-ht"' : 'style="flex:1;min-width:0"'}>
+            <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:2px;color:${forScreen ? '#aaa' : '#888'};margin-bottom:3px">Entrenador personal</div>
+            <div style="font-size:${forScreen ? 22 : 20}px;font-weight:900;letter-spacing:-1px;color:#111">${trainerName}</div>
+            <div style="font-size:14px;font-weight:700;color:${forScreen ? col : '#333'};margin-top:4px">${rout.name}</div>
+            ${rout.description ? `<div style="font-size:11px;color:${forScreen ? '#aaa' : '#666'};margin-top:2px">${rout.description}</div>` : ''}
+            ${studentName ? `<div style="display:inline-block;font-size:9px;font-weight:700;color:${forScreen ? col : '#fff'};background:${forScreen ? col + '18' : col};border:1px solid ${forScreen ? col + '55' : col};border-radius:4px;padding:2px 8px;margin-top:5px;text-transform:uppercase;letter-spacing:.5px">Para: ${studentName}</div>` : ''}
           </div>
         </div>`;
     }
@@ -1181,20 +1192,25 @@ const Users = (() => {
     document.getElementById('pv-close').addEventListener('click', () => overlay.remove());
 
     document.getElementById('pv-share').addEventListener('click', () => {
-      // Build self-contained print page — auto-triggers print dialog on load
       const printHtml = '<!DOCTYPE html><html lang=”es”><head>' +
         '<meta charset=”UTF-8”>' +
         '<meta name=”viewport” content=”width=device-width,initial-scale=1”>' +
         '<title>' + rout.name + ' — PR.47</title>' +
         '<style>' +
-        '*{box-sizing:border-box;margin:0;padding:0}' +
-        'body{font-family:system-ui,-apple-system,Helvetica,Arial,sans-serif;background:#fff;color:#111;padding:28px 32px;max-width:700px;margin:0 auto}' +
-        '@media print{body{padding:0;max-width:none}@page{margin:14mm 18mm}.pc{page-break-inside:avoid}}' +
+        '*{box-sizing:border-box;margin:0;padding:0;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}' +
+        'body{font-family:system-ui,-apple-system,Helvetica,Arial,sans-serif;background:#fff;color:#111;padding:30px 34px;max-width:680px;margin:0 auto}' +
+        'img{display:block;max-width:100%;height:auto}' +
+        '.pc{margin-bottom:12px}' +
+        '@media print{' +
+          'body{padding:0;max-width:none}' +
+          '@page{size:A4 portrait;margin:15mm 18mm}' +
+          '.pc{page-break-inside:avoid;break-inside:avoid}' +
+        '}' +
         '</style></head><body>' +
         headerHTML(false) +
-        (buildItemsHTML(false) || '<p style=”color:#aaa”>Sin ejercicios</p>') +
-        '<div style=”margin-top:32px;padding-top:12px;border-top:1px solid #e8e8e8;font-size:9px;color:#ccc;text-align:center;text-transform:uppercase;letter-spacing:1.5px”>' + trainerName + ' · ' + dateStr + '</div>' +
-        '<script>window.addEventListener(“load”,function(){setTimeout(function(){window.print();},400);});<\/script>' +
+        (buildItemsHTML(false) || '<p style=”color:#888;font-size:13px;margin-top:16px”>Sin ejercicios</p>') +
+        '<div style=”margin-top:36px;padding-top:12px;border-top:1px solid #ccc;font-size:9px;color:#888;text-align:center;text-transform:uppercase;letter-spacing:1.5px”>' + trainerName + ' · ' + dateStr + ' · PR.47</div>' +
+        '<script>window.addEventListener(“load”,function(){var imgs=document.images,n=imgs.length,done=0;function go(){setTimeout(function(){window.print();},600);}if(!n){go();return;}for(var i=0;i<n;i++){if(imgs[i].complete){if(++done===n)go();}else{imgs[i].onload=imgs[i].onerror=function(){if(++done===n)go();};}}});<\/script>' +
         '</body></html>';
 
       const blob = new Blob([printHtml], { type: 'text/html; charset=utf-8' });
