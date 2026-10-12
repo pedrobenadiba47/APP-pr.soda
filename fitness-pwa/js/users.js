@@ -776,7 +776,10 @@ const Users = (() => {
               <span class="break-duration">${item.duration} ${item.unit === 'min' ? 'min' : 'seg'}</span>
               ${item.note ? `<span class="break-note">${item.note}</span>` : ''}
             </div>
-            <button class="icon-btn item-del" data-i="${i}" style="margin-left:auto">${ic.trash}</button>
+            <div class="exercise-actions" style="flex-direction:row;flex-shrink:0;margin-left:auto">
+              <button class="icon-btn item-edit-break" data-i="${i}" title="Editar">${ic.edit}</button>
+              <button class="icon-btn item-del"        data-i="${i}" title="Eliminar">${ic.trash}</button>
+            </div>
           </div>`;
       }
     }).join('');
@@ -806,6 +809,11 @@ const Users = (() => {
     list.querySelectorAll('.item-edit-speed').forEach(b =>
       b.addEventListener('click', () =>
         openSpeedRunModal(getItems(curRout)[parseInt(b.dataset.i)], parseInt(b.dataset.i))
+      )
+    );
+    list.querySelectorAll('.item-edit-break').forEach(b =>
+      b.addEventListener('click', () =>
+        openBreakModal(getItems(curRout)[parseInt(b.dataset.i)], parseInt(b.dataset.i))
       )
     );
 
@@ -1238,47 +1246,53 @@ const Users = (() => {
   }
 
   /* â”€â”€ Break modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-  function openBreakModal() {
-    App.openModal('Agregar pausa', `
+  function openBreakModal(item = null, idx = null) {
+    const editing = item !== null && idx !== null;
+    const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+    const type = item?.type || 'rest';
+    const unit = item?.unit === 'min' ? 'min' : 'sec';
+    App.openModal(editing ? 'Editar pausa' : 'Agregar pausa', `
       <div class="form-group">
         <label>Tipo</label>
         <select id="br-type" class="form-select">
-          <option value="rest">Descanso</option>
-          <option value="warmup">Entrada en calor</option>
-          <option value="active-pause">Pausa activa</option>
+          <option value="rest"${type === 'rest' ? ' selected' : ''}>Descanso</option>
+          <option value="warmup"${type === 'warmup' ? ' selected' : ''}>Entrada en calor</option>
+          <option value="active-pause"${type === 'active-pause' ? ' selected' : ''}>Pausa activa</option>
         </select>
       </div>
       <div class="form-row">
         <div class="form-group">
           <label>Duración</label>
-          <input id="br-dur" class="form-input" type="number" min="1" value="30" />
+          <input id="br-dur" class="form-input" type="number" min="1" value="${item ? esc(item.duration) : 30}" />
         </div>
         <div class="form-group">
           <label>Unidad</label>
           <select id="br-unit" class="form-select">
-            <option value="sec">Segundos</option>
-            <option value="min">Minutos</option>
+            <option value="sec"${unit === 'sec' ? ' selected' : ''}>Segundos</option>
+            <option value="min"${unit === 'min' ? ' selected' : ''}>Minutos</option>
           </select>
         </div>
       </div>
       <div class="form-group">
         <label>Aclaración <span style="font-size:.65em;color:var(--text3);font-weight:400">(opcional)</span></label>
-        <input id="br-note" class="form-input" placeholder="Ej: entre series" />
+        <input id="br-note" class="form-input" placeholder="Ej: entre series" value="${esc(item?.note || '')}" />
       </div>
       <div class="modal-footer">
         <button id="br-cancel" class="btn btn-secondary">Cancelar</button>
-        <button id="br-save"   class="btn btn-primary">Agregar</button>
+        <button id="br-save"   class="btn btn-primary">${editing ? 'Guardar' : 'Agregar'}</button>
       </div>
     `);
     document.getElementById('br-cancel').addEventListener('click', App.closeModal);
     document.getElementById('br-save').addEventListener('click', () => {
-      const type     = document.getElementById('br-type').value;
+      const newType  = document.getElementById('br-type').value;
       const duration = parseInt(document.getElementById('br-dur').value)  || 30;
-      const unit     = document.getElementById('br-unit').value;
+      const newUnit  = document.getElementById('br-unit').value;
       const note     = document.getElementById('br-note').value.trim();
-      getItems(curRout).push({ id: uid(), type, duration, unit, note });
+      const items    = getItems(curRout);
+      if (editing) items[idx] = { ...item, type: newType, duration, unit: newUnit, note };
+      else items.push({ id: uid(), type: newType, duration, unit: newUnit, note });
       save(); App.closeModal(); renderItems();
-      App.toast('Pausa agregada');
+      App.toast(editing ? 'Pausa actualizada' : 'Pausa agregada');
     });
   }
 

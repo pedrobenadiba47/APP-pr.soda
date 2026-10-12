@@ -1610,3 +1610,7 @@ body.it-prep .nav-item.active { color: #fff; }
   border: 1.5px dashed var(--bg4); background: transparent; color: var(--text2);
   font: inherit; font-size: .75rem; font-weight: 700; cursor: pointer;
 }
+
+/* ── Generador: interruptor de pasadas de velocidad ─────── */
+.gen-n small { display: block; margin-top: 2px; font-size: .65rem; font-weight: 500; color: var(--text3); }
+.gen-speed { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--bg3); }

@@ -292,7 +292,17 @@ const Generator = (() => {
     const recent = metas.filter(m => m.exCount >= 3).slice(-10);
     const prof = { recent, median: 9, avgGroups: 2, maxBlock: 4, hasBreaks: false,
                    pool: { warmup: [], rest: [], 'active-pause': [], 'speed-run': [] },
-                   core: { rate: 0, avg: 0 }, avgPer: {} };
+                   core: { rate: 0, avg: 0 }, avgPer: {},
+                   speed: { rate: 0, counts: [], ladders: [], must: false } };
+    /* pasadas de velocidad: si casi todas sus rutinas las llevan (Juan), el generador las incluye siempre */
+    const last12 = metas.filter(m => m.exCount >= 3).slice(-12);
+    const withS = last12.filter(m => m.items.some(it => it.type === 'speed-run'));
+    prof.speed.rate = last12.length ? withS.length / last12.length : 0;
+    prof.speed.must = prof.speed.rate >= 0.5;
+    withS.forEach(m => {
+      const lad = m.items.filter(it => it.type === 'speed-run').map(it => { const c = Object.assign({}, it); delete c.id; return c; });
+      prof.speed.counts.push(lad.length); prof.speed.ladders.push(lad);
+    });
     if (!recent.length) return prof;
     const sizes = recent.map(m => m.exCount).sort((a, b) => a - b);
     prof.median = sizes[Math.floor(sizes.length / 2)];
@@ -531,7 +541,7 @@ const Generator = (() => {
     const out = [];
     sk.forEach(n => {
       const p = out[out.length - 1];
-      if (n.t === 'B' && p && p.t === 'B' && p.it.type === n.it.type && n.it.type !== 'warmup') return;
+      if (n.t === 'B' && p && p.t === 'B' && p.it.type === n.it.type && n.it.type !== 'warmup' && n.it.type !== 'speed-run') return;
       out.push(n);
     });
     return out;
@@ -600,6 +610,81 @@ const Generator = (() => {
     const e = estimate(d.items, an.pace);
     d.minutes = e.total; d.exMin = e.ex; d.brMin = e.br;
     return d;
+  }
+
+  /* ── Pasadas de velocidad ─────────────────────────────────
+     Juan hace 2 o 3 tandas por clase, en "escalera" (la primera más larga, la última más corta; mismas
+     series en todas), la primera al empezar y las otras entre bloques de ejercicios, por tiempo o por
+     metros. Acá se arman así, copiando una escalera suya o inventando una variante (menos series pero
+     más duras, 10 cortitas, por metros, mixta).                                                    */
+  const sr = (series, distance, distUnit, rest) => ({ type: 'speed-run', series, distance, distUnit, rest, restUnit: 'segundos' });
+  const roundTo = (v, step) => Math.max(step, Math.round(v / step) * step);
+
+  function takeLadder(lad, T) {                     // se queda con T tandas: primera, (del medio) y última
+    if (lad.length === T) return lad;
+    if (lad.length > T) return T === 2 ? [lad[0], lad[lad.length - 1]] : [lad[0], lad[Math.floor(lad.length / 2)], lad[lad.length - 1]];
+    const out = lad.slice();
+    while (out.length < T) {                        // si faltan, una tanda más corta al final
+      const l = out[out.length - 1];
+      out.push(Object.assign({}, l, { distance: /^m/i.test(l.distUnit) ? roundTo(l.distance * 0.5, 25) : roundTo(l.distance * 0.6, 5) }));
+    }
+    return out;
+  }
+
+  function makeLadder(T, prof, rng) {
+    const hist = prof.speed.ladders;
+    const style = wpick([['clasica', hist.length ? 5 : 0], ['distancia', 2], ['dura', 2], ['cortas', 1.5], ['mixta', 1.5]].filter(s => s[1] > 0), s => s[1], rng)[0];
+    let lad;
+    if (style === 'clasica') {
+      lad = pick(hist, rng).map(x => Object.assign({}, x));
+      if (rng() < 0.3) { const s2 = pick([5, 7, 8, 10], rng); lad.forEach(x => { x.series = s2; }); }
+      if (rng() < 0.35) lad.forEach(x => { if (/^seg/i.test(x.distUnit)) x.distance = clamp(x.distance + pick([-5, 5], rng), 10, 90); });
+    } else if (style === 'distancia') {                       // por metros: 200 m, 100 m y una corta por tiempo
+      const d0 = pick([150, 200, 250], rng), s = pick([6, 7, 8], rng);
+      lad = [sr(s, d0, 'metros', 20), sr(s, d0 >= 250 ? 150 : d0 === 200 ? 100 : 75, 'metros', 20), sr(s, pick([10, 15, 20], rng), 'segundos', 10)];
+    } else if (style === 'dura') {                            // menos series, pero más largas y con más descanso
+      const s = pick([5, 6], rng), w0 = pick([45, 50, 60], rng);
+      lad = [sr(s, w0, 'segundos', 30), sr(s, roundTo(w0 * 0.67, 5), 'segundos', 25), sr(s, roundTo(w0 * 0.4, 5), 'segundos', 20)];
+    } else if (style === 'cortas') {                          // muchas series muy cortas
+      lad = [sr(10, 15, 'segundos', 10), sr(10, 15, 'segundos', 10), sr(10, 10, 'segundos', 10)];
+    } else {                                                  // mixta: metros y después tiempo
+      const s = pick([6, 8], rng);
+      lad = [sr(s, pick([150, 200], rng), 'metros', 20), sr(s, pick([30, 40], rng), 'segundos', 15), sr(s, pick([10, 15], rng), 'segundos', 10)];
+    }
+    return takeLadder(lad, T);
+  }
+
+  /* Deja exactamente 2 o 3 tandas de pasadas en el esqueleto y les pone los valores de la escalera */
+  function ensureSpeedRuns(sk, prof, rng) {
+    const T = pick(prof.speed.counts.length ? prof.speed.counts.map(c => clamp(c, 2, 3)) : [3, 3, 2], rng);
+    // se sacan las del molde (a veces vienen pegadas) y se vuelven a poner bien separadas
+    sk = cleanSkeleton(sk.filter(n => !(n.t === 'B' && n.it.type === 'speed-run')));
+    const spIdx = () => { const a = []; sk.forEach((n, i) => { if (n.t === 'B' && n.it.type === 'speed-run') a.push(i); }); return a; };
+    let idxs = spIdx();
+    const targets = T === 2 ? [0, 0.5] : [0, 0.4, 0.75];     // al empezar y repartidas entre los bloques
+    while (idxs.length < T) {
+      const totalE = sk.filter(n => n.t === 'E').length || 1;
+      const fracAt = i => sk.slice(0, i).filter(n => n.t === 'E').length / totalE;
+      const have = idxs.map(fracAt);
+      const tgt = targets.reduce((best, t) => { const d = Math.min(1, ...have.map(h => Math.abs(h - t))); return d > best.d ? { t, d } : best; }, { t: targets[0], d: -1 }).t;
+      let bestI = -1, bestD = Infinity;
+      for (let i = 0; i <= sk.length; i++) {
+        const startsBlock = i < sk.length && sk[i].t === 'E' && (i === 0 || sk[i - 1].t === 'B');
+        const atEnd = i === sk.length && i > 0 && sk[i - 1].t === 'E';
+        const inside = i > 0 && i < sk.length && sk[i - 1].t === 'E' && sk[i].t === 'E';      // partir un bloque en dos
+        if (!startsBlock && !atEnd && !inside) continue;
+        const adj = (i > 0 && sk[i - 1].t === 'B' && sk[i - 1].it.type === 'speed-run') || (i < sk.length && sk[i].t === 'B' && sk[i].it.type === 'speed-run');
+        if (adj) continue;
+        // se prefieren los límites entre bloques; partir un bloque cuesta poco; al final casi nunca las hace
+        const d = Math.abs(fracAt(i) - tgt) + (atEnd ? 0.25 : inside ? 0.04 : 0);
+        if (d < bestD) { bestD = d; bestI = i; }
+      }
+      sk.splice(bestI < 0 ? sk.length : bestI, 0, { t: 'B', it: { type: 'speed-run' } });
+      idxs = spIdx();
+    }
+    const lad = makeLadder(T, prof, rng);
+    spIdx().forEach((i, k) => { sk[i] = { t: 'B', it: Object.assign({}, lad[k]) }; });
+    return sk;
   }
 
   function defaultN(an, groups) {
@@ -753,6 +838,14 @@ const Generator = (() => {
       for (let i = 0; i < N; i++) { sk.push({ t: 'E' }); if ((i + 1) % 3 === 0 && i < N - 1) sk.push({ t: 'B', it: { type: 'rest', duration: 60, unit: 'sec', note: '' } }); }
     }
     sk = cleanSkeleton(mutateBreaks(adaptSkeleton(sk, N, prof, rng), prof, rng));
+    /* pasadas de velocidad: siempre si el alumno las usa casi siempre (o si se pidieron); nunca si se sacaron */
+    const speedOn = req.speed == null ? prof.speed.must : !!req.speed;
+    if (speedOn) {
+      // quien hace pasadas siempre (Juan) no usa pausa activa: las pasadas ocupan ese lugar
+      if (prof.speed.must) sk = cleanSkeleton(sk.filter(x => !(x.t === 'B' && x.it.type === 'active-pause')));
+      sk = ensureSpeedRuns(sk, prof, rng);
+    }
+    else if (req.speed === false) sk = cleanSkeleton(sk.filter(x => !(x.t === 'B' && x.it.type === 'speed-run')));
 
     const items = [], slots = [];
     let ei = 0;
@@ -781,7 +874,7 @@ const Generator = (() => {
     const out = [];
     draft.items.forEach(it => {
       const p = out[out.length - 1];
-      if (!isEx(it) && p && !isEx(p) && p.type === it.type && it.type !== 'warmup') return;
+      if (!isEx(it) && p && !isEx(p) && p.type === it.type && it.type !== 'warmup' && it.type !== 'speed-run') return;
       out.push(it);
     });
     draft.items = out;
@@ -925,7 +1018,7 @@ const Generator = (() => {
     S.sessions.forEach((s, i) => { s.gap = i === 0 ? S.prevDays + diffDays(s.date, S.today) : diffDays(s.date, S.sessions[i - 1].date); });
   }
   function initSessions() {
-    const blank = { groups: [], n: 9, auto: true, sugg: [], touchedG: false };
+    const blank = { groups: [], n: 9, auto: true, sugg: [], touchedG: false, speed: S.an.prof.speed.must };
     if (S.mode === 'single') {
       S.sessions = [Object.assign({ label: 'Hoy', date: S.today, gap: S.prevDays }, blank)];
     } else {
@@ -962,7 +1055,7 @@ const Generator = (() => {
   function reqFor(i, useDrafts) {
     const s = S.sessions[i], weekKeys = new Set();
     if (useDrafts) for (let j = 0; j < i; j++) if (S.drafts[j]) S.drafts[j].chosen.forEach(c => weekKeys.add(c.e.key));
-    return { groups: s.groups, n: s.n, auto: s.auto, minutes: S.minutes, prev: prevFor(i, useDrafts), weekKeys, uid: S.ctx.uid, forDate: s.date };
+    return { groups: s.groups, n: s.n, auto: s.auto, speed: s.speed, minutes: S.minutes, prev: prevFor(i, useDrafts), weekKeys, uid: S.ctx.uid, forDate: s.date };
   }
   /* cuántos ejercicios entran y cuánto dura (es una vista rápida; la rutina final puede variar unos minutos) */
   function quickPlan(i) {
@@ -1015,6 +1108,9 @@ const Generator = (() => {
           <span class="gen-est ${cls}">${est}</span>
         </div>
         <div class="gen-hint">${s.auto ? `Automático: la app elige cuántos ejercicios entran para que la clase dure entre ${S.minutes - 5} y ${S.minutes} min.` : 'Cantidad fija: la app no la ajusta, solo te dice cuánto dura.'}</div>
+        <div class="gen-n gen-speed"><span>Pasadas de velocidad<small>${s.speed ? '2 o 3 por clase, por tiempo o por metros' : 'No se incluyen'}</small></span>
+          <label class="toggle-switch"><input type="checkbox" data-gen="speed" data-s="${i}"${s.speed ? ' checked' : ''}><span class="toggle-slider"></span></label>
+        </div>
       </div>`;
   }
 
@@ -1098,6 +1194,7 @@ const Generator = (() => {
     });
     root.addEventListener('change', e => {
       const t = e.target, a = t.dataset.gen;
+      if (a === 'speed') { S.sessions[+t.dataset.s].speed = t.checked; return renderSetup(true); }
       if (a === 'prevR') {
         S.prevMetaId = t.value;
         const m = S.an.metas.find(x => x.r.id === t.value);
