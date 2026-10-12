@@ -1457,3 +1457,134 @@ body.it-prep .btn-it-reset  { border-color: rgba(255,255,255,.25); color: rgba(2
 
 body.it-prep .nav-item        { color: rgba(255,255,255,.3); }
 body.it-prep .nav-item.active { color: #fff; }
+
+/* ── Generador de rutinas ───────────────────────────────── */
+.gen-intro { font-size: .78rem; color: var(--text2); margin: -6px 0 14px; }
+.gen-intro b { color: var(--text); }
+.gen-box {
+  background: var(--bg2); border: 1px solid var(--bg3);
+  border-radius: var(--radius); padding: 12px; margin-bottom: 14px;
+}
+.gen-box .form-select { margin-bottom: 8px; padding: 10px 12px; font-size: .85rem; }
+.gen-lbl {
+  font-size: .6rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 1.5px; color: var(--text3); margin: 14px 0 8px;
+}
+.gen-box .gen-lbl { margin-top: 0; }
+.gen-hint { font-size: .7rem; color: var(--text3); line-height: 1.45; }
+.gen-seg {
+  display: flex; background: var(--bg2); border: 1px solid var(--bg3);
+  border-radius: var(--radius); padding: 3px; margin-bottom: 4px;
+}
+.gen-seg button {
+  flex: 1; padding: 9px 6px; border: 0; border-radius: calc(var(--radius) - 3px);
+  background: transparent; color: var(--text2); font: inherit;
+  font-size: .75rem; font-weight: 700; cursor: pointer;
+}
+.gen-seg button.on { background: var(--accent-d); color: #fff; }
+
+.gen-session { margin-top: 16px; padding-top: 4px; }
+.gen-session + .gen-session { border-top: 1px solid var(--bg3); padding-top: 14px; }
+.gen-s-title {
+  font-size: .8rem; font-weight: 800; color: var(--accent);
+  text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px;
+}
+.gen-sugg { font-size: .8rem; color: var(--text2); line-height: 1.4; }
+.gen-sugg b { color: var(--text); }
+.gen-sugg span { display: block; font-size: .7rem; color: var(--text3); margin-top: 2px; }
+.gen-alts { margin-top: 8px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.gen-alts i { font-size: .68rem; color: var(--text3); font-style: normal; }
+.gen-alt {
+  padding: 5px 10px; border-radius: 14px; border: 1px dashed var(--bg4);
+  background: transparent; color: var(--text2); font: inherit; font-size: .68rem;
+  font-weight: 600; cursor: pointer;
+}
+.gen-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.gen-chip {
+  padding: 8px 13px; border-radius: 20px; border: 1.5px solid var(--bg3);
+  background: var(--bg2); color: var(--text2); font: inherit; font-size: .78rem;
+  font-weight: 700; cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.gen-chip.on { background: var(--accent-d); border-color: var(--accent-d); color: #fff; }
+.gen-chip.ghost { background: transparent; border-style: dashed; font-weight: 600; }
+.gen-chip.empty { opacity: .4; }
+.gen-days .gen-chip { padding: 8px 11px; }
+.gen-warn {
+  margin-top: 10px; padding: 8px 10px; border-radius: var(--radius-sm);
+  background: var(--red-bg); color: var(--red);
+  font-size: .72rem; line-height: 1.4; font-weight: 600;
+}
+.gen-n {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-top: 14px; font-size: .75rem; color: var(--text2); font-weight: 600;
+}
+.gen-step { display: flex; align-items: center; gap: 4px; }
+.gen-step button {
+  width: 34px; height: 34px; border-radius: 50%; border: 1.5px solid var(--bg4);
+  background: var(--bg2); color: var(--text); font: inherit; font-size: 1.1rem;
+  line-height: 1; cursor: pointer;
+}
+.gen-step b { min-width: 34px; text-align: center; font-size: 1.05rem; color: var(--text); }
+
+.gen-footer {
+  position: sticky; bottom: -20px; z-index: 2;      /* -20px = el padding del modal, así queda pegada al borde */
+  display: flex; gap: 10px;
+  margin: 18px -20px -20px; padding: 12px 20px 20px;
+  background: var(--bg); border-top: 1px solid var(--bg3);
+}
+.gen-footer .btn { flex: 1; margin-top: 0; }
+
+.gen-draft {
+  background: var(--bg2); border: 1px solid var(--bg3);
+  border-radius: var(--radius); padding: 12px; margin-bottom: 14px;
+}
+.gen-d-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+.gen-d-title { font-size: .85rem; font-weight: 800; color: var(--text); line-height: 1.25; }
+.gen-d-meta { font-size: .66rem; color: var(--text3); margin-top: 2px; }
+.gen-mini {
+  flex-shrink: 0; padding: 7px 12px; border-radius: 14px; border: 1.5px solid var(--accent-d);
+  background: transparent; color: var(--accent); font: inherit; font-size: .7rem;
+  font-weight: 700; cursor: pointer;
+}
+.gen-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 0; border-top: 1px solid var(--bg3);
+}
+.gen-row-main { flex: 1; min-width: 0; }
+.gen-row-name { font-size: .85rem; font-weight: 700; color: var(--text); line-height: 1.25; word-break: break-word; }
+.gen-row-sub { font-size: .72rem; color: var(--text3); margin-top: 2px; }
+.gen-row-sub b { color: var(--accent); font-weight: 700; }
+.gen-break .gen-row-name { font-size: .68rem; text-transform: uppercase; letter-spacing: 1px; color: var(--text2); }
+.gen-break { background: transparent; }
+.gen-badge {
+  flex-shrink: 0; padding: 4px 8px; border-radius: 10px; border: 0;
+  background: var(--accent-bg); color: var(--accent); font: inherit;
+  font-size: .62rem; font-weight: 700; cursor: pointer;
+}
+.gen-swap {
+  flex-shrink: 0; width: 32px; height: 32px; border-radius: 50%;
+  border: 1.5px solid var(--bg4); background: transparent; color: var(--text2);
+  font-size: 1rem; line-height: 1; cursor: pointer;
+}
+
+/* ── Actualizar pesos ───────────────────────────────────── */
+.gw-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 11px 0; border-bottom: 1px solid var(--bg3);
+}
+.gw-info { flex: 1; min-width: 0; }
+.gw-name { font-size: .85rem; font-weight: 700; color: var(--text); line-height: 1.25; word-break: break-word; }
+.gw-sub { font-size: .68rem; color: var(--text3); margin-top: 2px; }
+.gw-ctl { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
+.gw-btn {
+  width: 34px; height: 38px; border-radius: var(--radius-sm); border: 1.5px solid var(--bg4);
+  background: var(--bg2); color: var(--text); font: inherit; font-size: 1.1rem;
+  line-height: 1; cursor: pointer;
+}
+.gw-input {
+  width: 92px; padding: 9px 8px; border-radius: var(--radius-sm);
+  border: 1.5px solid var(--bg3); background: var(--bg2); color: var(--text);
+  font: inherit; font-size: .82rem; font-weight: 700; text-align: center; outline: none;
+}
+.gw-input:focus { border-color: var(--accent); }
+.gw-input.changed { border-color: var(--accent-d); color: var(--accent); }

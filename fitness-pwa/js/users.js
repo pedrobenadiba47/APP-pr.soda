@@ -479,7 +479,7 @@ const Users = (() => {
     }
     list.innerHTML = rs.map(r => {
       const col = r.color || 'var(--bg3)';
-      const exCount = (r.exercises||[]).length;
+      const exCount = (r.items || r.exercises || []).filter(i => !i.type || i.type === 'exercise').length;
       return `
       <div class="routine-card" data-id="${r.id}" style="border-left-color:${col}">
         <div class="routine-icon" style="background:${col}20;color:${col}">${ic.dumbbell}</div>
@@ -1373,15 +1373,18 @@ const Users = (() => {
     document.getElementById('ex-save').addEventListener('click', () => {
       const name = document.getElementById('ex-name').value.trim();
       if (!name) { App.toast('Ingresá el nombre'); return; }
+      const noteVal = document.getElementById('ex-note').value.trim();
       const obj = {
         id:      ex?.id || uid(),
         type:    'exercise',
         name,
         sets:    document.getElementById('ex-sets').value.trim() || '3',
         reps:    document.getElementById('ex-reps').value.trim() || '10',
-        note:    document.getElementById('ex-note').value.trim(),
+        note:    noteVal,
         dropset: document.getElementById('ex-dropset').checked,
       };
+      // fecha del último cambio de peso/nota: el generador usa siempre el peso más reciente
+      if (noteVal) obj.noteAt = (ex && (ex.note || '') === noteVal && ex.noteAt) ? ex.noteAt : Date.now();
       const items = getItems(curRout);
       if (idx !== null) items[idx] = obj; else items.push(obj);
       save(); App.closeModal(); renderItems();
@@ -1473,6 +1476,12 @@ const Users = (() => {
     });
 
     document.getElementById('add-routine-btn').addEventListener('click', () => openRoutineModal());
+    document.getElementById('generate-routine-btn').addEventListener('click', () => {
+      if (curUser) Generator.open({ user: curUser, uid, save, onSaved: () => renderRoutines() });
+    });
+    document.getElementById('weights-btn').addEventListener('click', () => {
+      if (curRout) Generator.openWeights({ items: getItems(curRout), save, onSaved: () => renderItems() });
+    });
     document.getElementById('copy-routine-btn').addEventListener('click', () => {
       if (curUser) openCopyFromModal();
     });
