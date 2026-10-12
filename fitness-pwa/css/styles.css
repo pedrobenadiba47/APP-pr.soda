@@ -1588,3 +1588,25 @@ body.it-prep .nav-item.active { color: #fff; }
 }
 .gw-input:focus { border-color: var(--accent); }
 .gw-input.changed { border-color: var(--accent-d); color: var(--accent); }
+
+/* ── Generador: duración, sacar y sumar ejercicios ──────── */
+.gen-est { font-size: .72rem; font-weight: 700; color: var(--text2); }
+.gen-est.ok    { color: var(--accent); }
+.gen-est.long  { color: var(--red); }
+.gen-est.short { color: #f1c40f; }
+.gen-autoline { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; }
+.gen-auto {
+  padding: 6px 12px; border-radius: 14px; border: 1.5px solid var(--bg4);
+  background: transparent; color: var(--text2); font: inherit; font-size: .7rem;
+  font-weight: 700; cursor: pointer;
+}
+.gen-auto.on { border-color: var(--accent-d); color: var(--accent); background: var(--accent-bg); }
+.gen-row { gap: 6px; }
+.gen-swap { width: 30px; height: 30px; }
+.gen-del { color: var(--red); border-color: rgba(255,92,77,.35); font-size: .8rem; }
+.gen-badge { padding: 4px 7px; }
+.gen-addrow {
+  width: 100%; margin-top: 8px; padding: 11px; border-radius: var(--radius-sm);
+  border: 1.5px dashed var(--bg4); background: transparent; color: var(--text2);
+  font: inherit; font-size: .75rem; font-weight: 700; cursor: pointer;
+}

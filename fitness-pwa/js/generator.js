@@ -22,7 +22,7 @@ const Generator = (() => {
     { key: 'piernas', label: 'Piernas',     up: 'PIERNAS' },
     { key: 'gluteos', label: 'Glúteos',     up: 'GLÚTEOS' },
     { key: 'core',    label: 'Abdominales', up: 'ABDOMINALES' },
-    { key: 'cardio',  label: 'Cardio',      up: 'CARDIO' },
+    { key: 'cardio',  label: 'Funcional / cardio', up: 'FUNCIONAL' },
   ];
   const GL = {}; const GU = {};
   GROUPS.forEach(g => { GL[g.key] = g.label; GU[g.key] = g.up; });
@@ -126,7 +126,7 @@ const Generator = (() => {
     ['piernas', /sentadilla|estoa?cada|zancada|prensa|bulgara|cuadricep|cudricep|isquio|aductor|gemelo|peso muerto|buenos dias|salto al (banco|cajon)|ascenso al banco|camilla|sillon|\bsumo\b|\bpop\b|hack/],
     ['gluteos', /glute|puente|hip ?thrust|cuadrupedia|patada de burro|abduccion|abductor|caminata lateral/],
     ['core',    /abdominal|abodminal|\babs\b|plancha|crunch|sit ?ups?|russian|dead bug|punto medio|knee pull|bolita|\bcortos?\b|cortitos|elevacion(es)? de piernas|lumbar|climber|boca abajo|pierna cruzada|rueda|oblicuo|colchoneta|superman|hiperextension/],
-    ['cardio',  /burpee|jumping|skipping|aerobico|trote|corrida|\bcinta\b|\bbici|eliptico/],
+    ['cardio',  /burpee|jumping|skipping|aerobico|trote|corrida|\bcinta\b|\bbici|eliptico|climber|\bsaltos?\b|mountain/],   // funcional / cardio
   ];
   const PIERNAS_GENERICO = /\bpierna|isometrico|ismetrico|rodilla|\bstep\b/;
   const _clsCache = new Map();
@@ -141,7 +141,12 @@ const Generator = (() => {
     if (has('tricep') && has('hombros') && /hombro/.test(n) && !/tricep/.test(n)) g = g.filter(x => x !== 'tricep');
     if (!has('piernas') && !has('gluteos') && !has('core') && PIERNAS_GENERICO.test(n)) g.push('piernas');
     if (has('gluteos') && has('core') && /glute/.test(n) && !/abdominal|plancha|crunch/.test(n)) g = g.filter(x => x !== 'core');
-    if (!g.length && /salto/.test(n)) g = ['piernas', 'cardio'];
+    const upper = ['espalda', 'pecho', 'hombros', 'bicep', 'tricep'].some(x => g.includes(x));
+    if (/salto/.test(n) && !upper && !g.includes('piernas')) g.push('piernas');   // saltos: también trabajan piernas
+    // una sentadilla/estocada con salto es de piernas, y "dominadas con salto" de espalda; "funcional" son
+    // burpees, jumping jacks, climbers, saltos al cajón…
+    if (g.includes('cardio') && (upper || /sentadilla|estoa?cada|bulgara|squat/.test(n)) &&
+        !/burpee|jumping|skipping|climber|aerobico|eliptico|\bbici|trote|corrida|\bcinta\b/.test(n)) g = g.filter(x => x !== 'cardio');
     _clsCache.set(name, g);
     return g.slice();
   }
@@ -279,7 +284,7 @@ const Generator = (() => {
     const poolSize = {}; GROUPS.forEach(g => { poolSize[g.key] = 0; });
     for (const b of bank.values()) b.groups.forEach(g => { poolSize[g]++; });
 
-    return { user, metas, bank, groupPos, poolSize, prof: buildProfile(metas), ovr };
+    return { user, metas, bank, groupPos, poolSize, prof: buildProfile(metas), pace: calibratePace(metas), ovr };
   }
 
   /* Cómo arma las clases este alumno (últimas 10 rutinas) */
@@ -532,6 +537,71 @@ const Generator = (() => {
     return out;
   }
 
+  /* ── Cuánto dura la clase (estimación) ─────────────────────
+     Cada serie tarda según las repeticiones; los cortes (descansos,
+     pausas activas, pasadas, entrada en calor) suman su tiempo tal cual.
+     Se calibra con las rutinas anteriores del alumno: se asume que lo
+     que arma normalmente llena una clase de 50 a 55 minutos.          */
+  const CLASS_MID = 52;                                    // punto medio de "50 a 55"
+  const PER_SIDE = /c\/\s*(pierna|lado|brazo|una|u)\b|cada\s+(pierna|lado|brazo|una)|p\/\s*(lado|pierna|brazo)|por\s+(lado|pierna|brazo)/;
+  const parseNum = s => parseFloat(String(s).replace(',', '.'));
+  function repInfo(reps) {
+    const s = String(reps == null ? '' : reps).toLowerCase();
+    let m = s.match(/(\d+(?:[.,]\d+)?)\s*(min|minuto|minutos)\b/); if (m) return { time: parseNum(m[1]) * 60 };
+    m = s.match(/(\d+(?:[.,]\d+)?)\s*(s|seg|segundos)\b/);          if (m) return { time: parseNum(m[1]) };
+    const nums = (s.match(/\d+(?:[.,]\d+)?/g) || []).map(parseNum);
+    let n = 12;
+    if (nums.length) {
+      if (/\+/.test(s)) n = nums.reduce((a, b) => a + b, 0);                          // "10 + 15"
+      else if (nums.length >= 2 && /\d\s*[-\/a]\s*\d/.test(s.replace(PER_SIDE, ''))) n = (nums[0] + nums[1]) / 2;   // "8-12"
+      else n = nums[0];
+    }
+    if (PER_SIDE.test(s)) n *= 2;                                                     // "10 c/pierna"
+    return { reps: n };
+  }
+  function exSeconds(it, k) {
+    const nums = String(it.sets == null ? '3' : it.sets).match(/\d+(?:[.,]\d+)?/g);
+    const sv = nums ? nums.map(parseNum) : [3];
+    const sets = sv.length > 1 ? (sv[0] + sv[1]) / 2 : sv[0];
+    let ri = repInfo(it.reps);
+    if (ri.time == null && /segundo/.test(norm(it.note || '')) && ri.reps) ri = { time: ri.reps };    // "30" + nota "Segundos"
+    const per = ri.time != null ? ri.time + 15 : clamp(30 + 3 * ri.reps, 28, 160);
+    return sets * per * (it.dropset ? 1.5 : 1) * (k || 1);
+  }
+  function unitSecs(v, u) {
+    v = +v || 0; u = String(u || '').toLowerCase();
+    if (/^min/.test(u)) return v * 60;
+    if (/^m/.test(u)) return v / 5;                                                   // metros: ~5 m/s en pasada
+    return v;
+  }
+  function breakSeconds(it) {
+    if (it.type === 'speed-run') {
+      const w = unitSecs(it.distance, it.distUnit), r = unitSecs(it.rest, it.restUnit);
+      return it.series * w + Math.max(0, it.series - 1) * r;
+    }
+    return it.unit === 'min' ? (+it.duration || 0) * 60 : (+it.duration || 0);
+  }
+  function estimate(items, k) {
+    let ex = 0, br = 0;
+    items.forEach(it => { if (isEx(it)) ex += exSeconds(it, k); else br += breakSeconds(it); });
+    return { total: (ex + br) / 60, ex: ex / 60, br: br / 60 };
+  }
+  function calibratePace(metas) {
+    const ks = [];
+    metas.filter(m => m.exCount >= 4).slice(-12).forEach(m => {
+      const e = estimate(m.items, 1);
+      if (e.ex > 3 && e.br < 45) ks.push((CLASS_MID - e.br) / e.ex);
+    });
+    if (ks.length < 3) return 1;
+    ks.sort((a, b) => a - b);
+    return clamp(ks[Math.floor(ks.length / 2)], 0.8, 1.7);
+  }
+  function estimateDraft(d, an) {
+    const e = estimate(d.items, an.pace);
+    d.minutes = e.total; d.exMin = e.ex; d.brMin = e.br;
+    return d;
+  }
+
   function defaultN(an, groups) {
     const m = Math.max(1, groups.length);
     return clamp(Math.round(an.prof.median * (0.6 + 0.4 * m / an.prof.avgGroups)), 3, 18);
@@ -542,47 +612,44 @@ const Generator = (() => {
     return `${lab} · ${fmtDate(forDate.getTime())}`;
   }
 
-  /* req: { groups, n, prev:{keys,fams,groups,daysAgo}|null, weekKeys:Set, rng, uid, forDate:Date } */
-  function generate(an, req) {
-    const rng = req.rng || Math.random;
-    const uid = req.uid || (() => Date.now().toString(36) + Math.random().toString(36).slice(2, 6));
+  const mkExItem = (e, uid) => {
+    const o = { id: uid(), type: 'exercise', name: e.name, sets: e.last.sets, reps: e.last.reps, note: e.weight || '', dropset: !!e.last.dropset };
+    if (e.weight && e.weightAt) o.noteAt = e.weightAt;
+    return o;
+  };
+  const defaultUid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+
+  /* Elegidor de ejercicios: respeta "solo ejercicios del alumno", ayer/anteayer, variedad y los que más repite */
+  function makePicker(an, req, chosen, rng) {
     const sel = new Set(req.groups);
-    const prof = an.prof;
     const prev = req.prev || null;
     const hard = !!prev && prev.daysAgo <= 1, soft = !!prev && prev.daysAgo <= 2;
-    const warnings = [];
-
     const entries = [...an.bank.values()].filter(e => e.groups.length);
     const fit = e => !e.groups.some(g => sel.has(g)) ? 0 : (e.groups.every(g => sel.has(g) || g === 'cardio') ? 1 : 0.35);
-
-    const chosen = [], chosenKeys = new Set();
-    const blocked = (e, lvl) => {
-      if (chosenKeys.has(e.key)) return true;
-      if (lvl >= 2) return false;                       // nivel 2: se permiten variantes del mismo movimiento
-      for (const c of chosen) if (isVariant(c.e.tok, e.tok)) return true;
-      return false;
-    };
-    const moveCount = {};
-    const weightOf = (e, relax) => {
+    const weightOf = (e, relax, mc) => {
       let w = 1 + 1.2 * Math.log(1 + e.count);                      // los que más repite salen más seguido
-      w *= Math.pow(0.55, moveCount[e.move] || 0);                  // no llenar la rutina de variantes del mismo movimiento
+      w *= Math.pow(0.55, (mc && mc[e.move]) || 0);                 // no llenar la rutina de variantes del mismo movimiento
       const back = an.metas.length - 1 - e.lastMi;                  // 0 = estuvo en la última rutina
       w *= back === 0 ? 0.12 : back === 1 ? 0.45 : back === 2 ? 0.8 : 1;
       if (prev) {
         const inPrev = prev.keys.has(e.key), famPrev = prev.fams.has(e.family);
-        if (hard)      w *= (inPrev ? (relax ? 0.02 : 0) : 1) * (famPrev ? (relax ? 0.05 : 0) : 1);
-        else if (soft) w *= (inPrev ? 0.05 : 1) * (famPrev ? 0.15 : 1);
+        const rlx = relax && !req.strictPrev;            // con "strictPrev" nunca se repite lo de ayer, aunque quede más corta
+        if (hard)      w *= (inPrev ? (rlx ? 0.02 : 0) : 1) * (famPrev ? (rlx ? 0.05 : 0) : 1);
+        else if (soft) w *= (inPrev ? (req.strictPrev ? 0 : 0.05) : 1) * (famPrev ? 0.15 : 1);
       }
       if (req.weekKeys && req.weekKeys.has(e.key)) w *= 0.3;
       return w;
     };
     // nivel 0: todas las reglas · 1: se relaja "ayer/anteayer" · 2: además se permiten variantes del mismo movimiento
     const pickOne = (pred, wf) => {
+      const ck = new Set(chosen.map(c => c.e.key)), mc = {};
+      chosen.forEach(c => { mc[c.e.move] = (mc[c.e.move] || 0) + 1; });
       for (let lvl = 0; lvl <= 2; lvl++) {
         const cs = []; let tot = 0;
         for (const e of entries) {
-          if (blocked(e, lvl) || !pred(e)) continue;
-          const w = wf(e, lvl >= 1);
+          if (ck.has(e.key) || !pred(e)) continue;
+          if (lvl < 2 && chosen.some(c => isVariant(c.e.tok, e.tok))) continue;
+          const w = wf(e, lvl >= 1, mc);
           if (w > 0) { cs.push([e, w]); tot += w; }
         }
         if (cs.length) {
@@ -593,15 +660,29 @@ const Generator = (() => {
       }
       return null;
     };
-    const add = (e, group) => { chosen.push({ e, group }); chosenKeys.add(e.key); moveCount[e.move] = (moveCount[e.move] || 0) + 1; };
+    return { sel, entries, fit, weightOf, pickOne, wf: (x, rl, mc) => weightOf(x, rl, mc) * fit(x) };
+  }
+
+  /* Una rutina con exactamente n ejercicios.
+     req: { groups, prev:{keys,fams,groups,daysAgo}|null, weekKeys:Set, rng, uid, forDate:Date } */
+  function generateOnce(an, req, n) {
+    const rng = req.rng || Math.random;
+    const uid = req.uid || defaultUid;
+    const prof = an.prof;
+    const prev = req.prev || null;
+    const warnings = [];
+    const chosen = [];
+    const P = makePicker(an, req, chosen, rng);
+    const sel = P.sel, fit = P.fit;
+    const add = (e, group) => { chosen.push({ e, group }); };
 
     /* cuántos por músculo: parejo entre los elegidos, con un empujoncito según lo que él suele hacer */
     const G = req.groups.slice();
     const coreYesterday = !!prev && prev.daysAgo <= 1 && prev.groups.includes('core');   // abs dos días seguidos: no se suman de relleno
     const compWanted = (!sel.has('core') && !coreYesterday && prof.core.rate >= 0.4) ? clamp(Math.round(prof.core.avg), 1, 2) : 0;
-    const comp = Math.min(compWanted, Math.floor(req.n / 3));
-    const mainN = Math.max(G.length ? 1 : 0, req.n - comp);
-    const avail = {}; G.forEach(g => { avail[g] = entries.filter(e => fit(e) > 0 && e.groups.includes(g)).length; });
+    const comp = Math.min(compWanted, Math.floor(n / 3));
+    const mainN = Math.max(G.length ? 1 : 0, n - comp);
+    const avail = {}; G.forEach(g => { avail[g] = P.entries.filter(e => fit(e) > 0 && e.groups.includes(g)).length; });
     const avgSel = G.reduce((s, g) => s + (prof.avgPer[g] || 2), 0) / (G.length || 1) || 1;
     const quota = allocate(G, mainN, g => clamp(Math.sqrt((prof.avgPer[g] || 2) / avgSel), 0.8, 1.25), avail);
 
@@ -611,7 +692,7 @@ const Generator = (() => {
       const open = G.filter(g => remaining[g] > 0 && !done[g]);
       if (!open.length) break;
       const g = open.reduce((a, b) => (remaining[b] > remaining[a] ? b : a), open[0]);
-      const e = pickOne(x => fit(x) > 0 && x.groups.includes(g), (x, rl) => weightOf(x, rl) * fit(x));
+      const e = P.pickOne(x => fit(x) > 0 && x.groups.includes(g), P.wf);
       if (!e) {
         done[g] = true;
         const over = remaining[g]; remaining[g] = 0;
@@ -622,17 +703,17 @@ const Generator = (() => {
       add(e, g); remaining[g]--;
     }
     for (let i = 0; i < comp; i++) {                                // complementarios (abs/plancha) como hace él
-      const e = pickOne(x => x.groups.includes('core') && x.groups.every(g => g === 'core' || g === 'cardio'), weightOf);
+      const e = P.pickOne(x => x.groups.includes('core') && x.groups.every(g => g === 'core' || g === 'cardio'), (x, rl, mc) => P.weightOf(x, rl, mc));
       if (!e) break;
       add(e, 'core');
     }
-    while (chosen.length < req.n) {                                 // último recurso si todavía faltan
-      const e = pickOne(x => fit(x) > 0, (x, rl) => weightOf(x, rl) * fit(x));
+    while (chosen.length < n) {                                     // último recurso si todavía faltan
+      const e = P.pickOne(x => fit(x) > 0, P.wf);
       if (!e) break;
       add(e, e.groups.find(g => sel.has(g)) || e.groups[0]);
     }
     G.forEach(g => { if (!avail[g]) warnings.push(`No tiene ejercicios de ${GL[g]} cargados.`); });
-    if (chosen.length < req.n) warnings.push(`Solo encontré ${chosen.length} ejercicios que cumplan.`);
+    if (chosen.length < n) warnings.push(`Solo encontré ${chosen.length} ejercicios que cumplan.`);
     if (prev && prev.daysAgo <= 2) {
       const shared = G.filter(g => prev.groups.includes(g) && g !== 'core');
       if (shared.length) warnings.push(`${prev.daysAgo <= 1 ? 'Ayer' : 'Anteayer'} ya trabajó ${shared.map(g => GL[g]).join(' y ')}: usé ejercicios distintos.`);
@@ -646,7 +727,7 @@ const Generator = (() => {
     chosen.forEach(c => { c.k = c.e.relPos + gauss(rng) * 0.1; });
     chosen.sort((a, b) => (gOrd[a.group] - gOrd[b.group]) || (a.k - b.k));
 
-    /* estructura: se copia de una rutina reciente del alumno */
+    /* estructura: se copia de una rutina anterior del alumno */
     const N = chosen.length;
     let sk, tmpl = null;
     if (prof.recent.length) {
@@ -666,7 +747,7 @@ const Generator = (() => {
       sk = tmpl.items.map(it => isEx(it) ? { t: 'E' } : { t: 'B', it: (() => { const c = Object.assign({}, it); delete c.id; return c; })() });
       // una entrada en calor que casi nunca usa con este alumno no se copia siempre
       const keepWarm = clamp((prof.warmRate || 0) * 2, 0.1, 1);
-      sk = sk.filter(n => !(n.t === 'B' && n.it.type === 'warmup' && rng() > keepWarm));
+      sk = sk.filter(x => !(x.t === 'B' && x.it.type === 'warmup' && rng() > keepWarm));
     } else {
       sk = [{ t: 'B', it: { type: 'warmup', duration: 5, unit: 'min', note: '' } }];
       for (let i = 0; i < N; i++) { sk.push({ t: 'E' }); if ((i + 1) % 3 === 0 && i < N - 1) sk.push({ t: 'B', it: { type: 'rest', duration: 60, unit: 'sec', note: '' } }); }
@@ -675,52 +756,119 @@ const Generator = (() => {
 
     const items = [], slots = [];
     let ei = 0;
-    const mkEx = e => {
-      const o = { id: uid(), type: 'exercise', name: e.name, sets: e.last.sets, reps: e.last.reps, note: e.weight || '', dropset: !!e.last.dropset };
-      if (e.weight && e.weightAt) o.noteAt = e.weightAt;
-      return o;
-    };
-    sk.forEach(n => {
-      if (n.t === 'E') { const c = chosen[ei++]; if (c) { slots.push(items.length); items.push(mkEx(c.e)); } }
-      else items.push(Object.assign({ id: uid() }, n.it));
+    sk.forEach(x => {
+      if (x.t === 'E') { const c = chosen[ei++]; if (c) { slots.push(items.length); items.push(mkExItem(c.e, uid)); } }
+      else items.push(Object.assign({ id: uid() }, x.it));
     });
-    while (ei < chosen.length) { slots.push(items.length); items.push(mkEx(chosen[ei++].e)); }
+    while (ei < chosen.length) { slots.push(items.length); items.push(mkExItem(chosen[ei++].e, uid)); }
 
     const forDate = req.forDate || new Date();
-    return {
+    return estimateDraft({
       items, chosen, slots, groups: req.groups.slice(), warnings,
       name: buildName(req.groups, forDate),
       description: tmpl ? (tmpl.r.description || '') : '',
       color: (tmpl && tmpl.r.color) || '#28D2DB',
       forDate: dkey(forDate), req, tmplName: tmpl ? tmpl.r.name : '',
-    };
+    }, an);
   }
 
-  /* Cambia UN ejercicio por otro del mismo músculo */
+  /* Saca un ejercicio y deja prolijos los cortes que quedaron pegados */
+  function removeExercise(draft, exIdx, an) {
+    const at = draft.slots[exIdx];
+    if (at == null) return false;
+    draft.items.splice(at, 1);
+    draft.chosen.splice(exIdx, 1);
+    const out = [];
+    draft.items.forEach(it => {
+      const p = out[out.length - 1];
+      if (!isEx(it) && p && !isEx(p) && p.type === it.type && it.type !== 'warmup') return;
+      out.push(it);
+    });
+    draft.items = out;
+    draft.slots = [];
+    out.forEach((it, i) => { if (isEx(it)) draft.slots.push(i); });
+    if (an) estimateDraft(draft, an);
+    return true;
+  }
+
+  /* Rutina que dura entre (max-5) y max minutos: la cantidad de ejercicios se ajusta sola.
+     req.auto === false -> se respeta req.n tal cual (solo se informa cuánto dura). */
+  function generate(an, req0) {
+    const hi = req0.minutes || 55, lo = hi - 5;
+    if (req0.auto === false) { const d = generateOnce(an, req0, clamp(req0.n || defaultN(an, req0.groups), 2, 24)); d.range = [lo, hi]; return d; }
+    // en automático no se repite lo de la clase anterior solo para llegar a la duración; si así no queda nada, se relaja
+    const req = Object.assign({}, req0, { strictPrev: req0.strictPrev !== false });
+    let n = clamp(req.n || defaultN(an, req.groups), 3, 24);
+    let best = null;
+    const seen = {};                                              // cuántas veces se probó cada cantidad
+    for (let tries = 0; tries < 10; tries++) {
+      seen[n] = (seen[n] || 0) + 1;
+      const d = generateOnce(an, req, n);
+      const dist = d.minutes > hi ? d.minutes - hi : d.minutes < lo ? lo - d.minutes : 0;
+      if (!best || dist < best.dist - 0.01) best = { d, dist };
+      if (dist === 0) break;
+      const per = Math.max(2, d.exMin / Math.max(1, d.chosen.length));
+      let nn = clamp(n + (Math.round(((lo + hi) / 2 - d.minutes) / per) || (d.minutes > hi ? -1 : 1)), 3, 24);
+      if ((seen[nn] || 0) >= 3) nn = clamp(d.minutes > hi ? n - 1 : n + 1, 3, 24);   // otra mezcla con la misma cantidad, hasta 3 veces
+      if ((seen[nn] || 0) >= 3) break;
+      n = nn;
+    }
+    if (!best.d.chosen.length && req.strictPrev) return generate(an, Object.assign({}, req0, { strictPrev: false }));
+    const d = best.d;
+    // ajuste fino: si quedó corta y entra uno más sin pasarse del máximo, se suma
+    for (let i = 0; i < 3 && d.minutes < lo && d.chosen.length < 24; i++) {
+      const r = addExercise(an, d, req.rng || Math.random, req.uid);
+      if (!r) break;
+      if (d.minutes > hi + 0.05) { removeExercise(d, r.idx, an); break; }
+    }
+    // tope duro: nunca pasa del máximo (se saca del músculo que más ejercicios tiene, de atrás para adelante)
+    while (d.minutes > hi + 0.05 && d.chosen.length > 3) {
+      const cnt = {}; d.chosen.forEach(c => { cnt[c.group] = (cnt[c.group] || 0) + 1; });
+      let bg = null; Object.keys(cnt).forEach(g => { if (bg == null || cnt[g] >= cnt[bg]) bg = g; });
+      let idx = d.chosen.length - 1;
+      for (let i = d.chosen.length - 1; i >= 0; i--) if (d.chosen[i].group === bg) { idx = i; break; }
+      removeExercise(d, idx, an);
+    }
+    d.range = [lo, hi];
+    return d;
+  }
+
+  /* Suma un ejercicio más (del músculo que menos tiene) */
+  function addExercise(an, draft, rng, uid) {
+    const P = makePicker(an, draft.req, draft.chosen, rng);
+    const cnt = {}; draft.groups.forEach(g => { cnt[g] = 0; });
+    draft.chosen.forEach(c => { if (cnt[c.group] != null) cnt[c.group]++; });
+    let e = null, grp = null;
+    for (const g of draft.groups.slice().sort((a, b) => cnt[a] - cnt[b])) {
+      e = P.pickOne(x => P.fit(x) > 0 && x.groups.includes(g), P.wf);
+      if (e) { grp = g; break; }
+    }
+    if (!e) return null;
+    let after = -1; draft.chosen.forEach((c, i) => { if (c.group === grp) after = i; });
+    const insertAt = after >= 0 ? draft.slots[after] + 1 : draft.items.length;
+    draft.items.splice(insertAt, 0, mkExItem(e, uid || defaultUid));
+    const pos = after >= 0 ? after + 1 : draft.chosen.length;
+    draft.chosen.splice(pos, 0, { e, group: grp });
+    draft.slots = [];
+    draft.items.forEach((it, i) => { if (isEx(it)) draft.slots.push(i); });
+    estimateDraft(draft, an);
+    return { name: e.name, idx: pos };
+  }
+
+  /* Cambia UN ejercicio por otro del mismo músculo; si no queda ninguno, por uno de los otros músculos de la rutina */
   function swapExercise(an, draft, exIdx, rng, uid) {
     const cur = draft.chosen[exIdx];
-    if (!cur) return false;
-    const req = draft.req, prev = req.prev || null, sel = new Set(draft.groups);
+    if (!cur) return null;
     const others = draft.chosen.filter((_, i) => i !== exIdx);
-    const keys = new Set(others.map(c => c.e.key));
-    let pool = [...an.bank.values()].filter(e =>
-      e.key !== cur.e.key && !keys.has(e.key) && e.groups.includes(cur.group) &&
-      !others.some(c => isVariant(c.e.tok, e.tok)));
-    if (prev && prev.daysAgo <= 2) {
-      const strict = pool.filter(e => !prev.keys.has(e.key) && !prev.fams.has(e.family));
-      if (strict.length) pool = strict;
-    }
-    if (!pool.length) return false;
-    const e = wpick(pool, x => {
-      const back = an.metas.length - 1 - x.lastMi;
-      const same = others.filter(c => c.e.move === x.move).length;
-      return (1 + 1.2 * Math.log(1 + x.count)) * Math.pow(0.55, same) * (back === 0 ? 0.12 : back === 1 ? 0.45 : 1) * (x.groups.every(g => sel.has(g) || g === 'cardio') ? 1 : 0.35);
-    }, rng);
-    const o = { id: (uid || (() => Date.now().toString(36)))(), type: 'exercise', name: e.name, sets: e.last.sets, reps: e.last.reps, note: e.weight || '', dropset: !!e.last.dropset };
-    if (e.weight && e.weightAt) o.noteAt = e.weightAt;
-    draft.items[draft.slots[exIdx]] = o;
-    draft.chosen[exIdx] = { e, group: cur.group };
-    return true;
+    const P = makePicker(an, draft.req, others, rng);
+    const notCur = x => x.key !== cur.e.key;
+    let e = P.pickOne(x => notCur(x) && P.fit(x) > 0 && x.groups.includes(cur.group), P.wf), fallback = false;
+    if (!e) { e = P.pickOne(x => notCur(x) && P.fit(x) > 0, P.wf); fallback = !!e; }
+    if (!e) return null;
+    draft.items[draft.slots[exIdx]] = mkExItem(e, uid || defaultUid);
+    draft.chosen[exIdx] = { e, group: e.groups.includes(cur.group) ? cur.group : (e.groups.find(g => draft.groups.includes(g)) || e.groups[0]) };
+    estimateDraft(draft, an);
+    return { name: e.name, fallback };
   }
 
   /* ── Correcciones manuales de músculo ───────────────────── */
@@ -740,6 +888,9 @@ const Generator = (() => {
   const BL = { rest: 'Descanso', warmup: 'Entrada en calor', 'active-pause': 'Pausa activa', 'speed-run': 'Pasadas de velocidad' };
   const trunc = (s, n) => { s = String(s || ''); return s.length > n ? s.slice(0, n - 1) + '…' : s; };
   const groupsLabel = gs => gs.map(g => GL[g]).join(' + ') || '—';
+  const MIN_KEY = 'fitpro_gen_minutes';
+  const MINUTES = [45, 50, 55, 60];
+  function loadMinutes() { try { const v = +localStorage.getItem(MIN_KEY); return MINUTES.includes(v) ? v : 55; } catch (e) { return 55; } }
   let S = null;                                  // estado del diálogo abierto
 
   function show(title, html, wire, keepScroll) {
@@ -758,7 +909,7 @@ const Generator = (() => {
     const today = startOfDay(new Date());
     const last = lastClassInfo(ctx.user, an, loadEvents(), today);
     const sch = (ctx.user.schedule || []).slice();
-    S = { ctx, an, today, mode: 'single', days: sch.length >= 2 ? sch : [1, 3, 5],
+    S = { ctx, an, today, mode: 'single', days: sch.length >= 2 ? sch : [1, 3, 5], minutes: loadMinutes(),
           prevMetaId: last ? last.meta.r.id : '', prevDays: last ? last.daysAgo : 99,
           sessions: [], drafts: [], ov: null };
     initSessions();
@@ -774,7 +925,7 @@ const Generator = (() => {
     S.sessions.forEach((s, i) => { s.gap = i === 0 ? S.prevDays + diffDays(s.date, S.today) : diffDays(s.date, S.sessions[i - 1].date); });
   }
   function initSessions() {
-    const blank = { groups: [], n: 9, sugg: [], touchedG: false, touchedN: false };
+    const blank = { groups: [], n: 9, auto: true, sugg: [], touchedG: false };
     if (S.mode === 'single') {
       S.sessions = [Object.assign({ label: 'Hoy', date: S.today, gap: S.prevDays }, blank)];
     } else {
@@ -787,8 +938,8 @@ const Generator = (() => {
   function applySugg(s, sg, force) {
     s.sugg = sg;
     if (force || !s.touchedG) s.groups = sg[0] ? sg[0].groups.slice() : [];
-    if (force || !s.touchedN) s.n = defaultN(S.an, s.groups);
-    if (force) { s.touchedG = false; s.touchedN = false; }
+    if (force) { s.touchedG = false; s.auto = true; }
+    s.n = defaultN(S.an, s.groups);
   }
   function resuggest(force) {
     const prev = prevCtx(), now = Date.now();
@@ -799,6 +950,29 @@ const Generator = (() => {
       S.sessions.forEach((s, i) => applySugg(s, plan[i], force));
     }
   }
+
+  /* qué clase venía antes de la sesión i (en la semana, la anterior ya generada) */
+  function prevFor(i, useDrafts) {
+    const s = S.sessions[i];
+    if (i === 0) { const p = prevCtx(); return p ? { keys: p.keys, fams: p.fams, groups: p.groups, daysAgo: s.gap } : null; }
+    const d = useDrafts && S.drafts[i - 1];
+    if (d) return { keys: new Set(d.chosen.map(c => c.e.key)), fams: new Set(d.chosen.map(c => c.e.family)), groups: d.groups, daysAgo: s.gap };
+    return { keys: new Set(), fams: new Set(), groups: S.sessions[i - 1].groups, daysAgo: s.gap };
+  }
+  function reqFor(i, useDrafts) {
+    const s = S.sessions[i], weekKeys = new Set();
+    if (useDrafts) for (let j = 0; j < i; j++) if (S.drafts[j]) S.drafts[j].chosen.forEach(c => weekKeys.add(c.e.key));
+    return { groups: s.groups, n: s.n, auto: s.auto, minutes: S.minutes, prev: prevFor(i, useDrafts), weekKeys, uid: S.ctx.uid, forDate: s.date };
+  }
+  /* cuántos ejercicios entran y cuánto dura (es una vista rápida; la rutina final puede variar unos minutos) */
+  function quickPlan(i) {
+    if (!S.sessions[i].groups.length) return null;
+    const req = reqFor(i, false); req.rng = mulberry32(4321 + i);
+    const d = generate(S.an, req);
+    return { n: d.chosen.length, minutes: d.minutes, lo: S.minutes - 5, hi: S.minutes };
+  }
+  const durClass = (m, lo, hi) => m > hi + 0.5 ? 'long' : m < lo - 0.5 ? 'short' : 'ok';
+
   function sessionWarnings(i) {
     const s = S.sessions[i], an = S.an, out = [];
     if (!s.groups.length) return ['Elegí al menos un músculo.'];
@@ -818,6 +992,9 @@ const Generator = (() => {
     const chips = GROUPS.map(g => `<button class="gen-chip${s.groups.includes(g.key) ? ' on' : ''}${an.poolSize[g.key] ? '' : ' empty'}" data-gen="chip" data-s="${i}" data-g="${g.key}">${g.label}</button>`).join('');
     const presets = PRESETS.filter(p => p.groups.every(g => an.poolSize[g] > 0))
       .map(p => `<button class="gen-chip ghost" data-gen="preset" data-s="${i}" data-p="${esc(p.label)}">${esc(p.label)}</button>`).join('');
+    const plan = quickPlan(i);
+    const cls = plan ? durClass(plan.minutes, plan.lo, plan.hi) : '';
+    const est = plan ? `≈ ${Math.round(plan.minutes)} min` + (cls === 'long' ? ` · se pasa de ${S.minutes}` : cls === 'short' ? ' · queda corta' : '') : '';
     return `
       <div class="gen-session">
         ${week ? `<div class="gen-s-title">${esc(s.label)}</div>` : ''}
@@ -827,9 +1004,17 @@ const Generator = (() => {
         <div class="gen-chips">${chips}</div>
         ${presets ? `<div class="gen-lbl">Combinaciones rápidas</div><div class="gen-chips">${presets}</div>` : ''}
         ${sessionWarnings(i).map(w => `<div class="gen-warn">${esc(w)}</div>`).join('')}
+        ${plan && s.auto && cls === 'short' ? `<div class="gen-warn">Con esos músculos ${esc(S.ctx.user.name)} solo tiene ${plan.n} ejercicios cargados, y no alcanzan para ${S.minutes - 5}–${S.minutes} min. Sumá otro músculo para llegar.</div>` : ''}
+        <div class="gen-lbl">Duración de la clase</div>
+        <div class="gen-chips">${MINUTES.map(m => `<button class="gen-chip${S.minutes === m ? ' on' : ''}" data-gen="min" data-m="${m}">hasta ${m} min</button>`).join('')}</div>
         <div class="gen-n"><span>Cantidad de ejercicios</span>
-          <div class="gen-step"><button data-gen="n" data-s="${i}" data-d="-1">−</button><b>${s.n}</b><button data-gen="n" data-s="${i}" data-d="1">+</button></div>
+          <div class="gen-step"><button data-gen="n" data-s="${i}" data-d="-1">−</button><b>${plan ? plan.n : s.n}</b><button data-gen="n" data-s="${i}" data-d="1">+</button></div>
         </div>
+        <div class="gen-autoline">
+          <button class="gen-auto${s.auto ? ' on' : ''}" data-gen="auto" data-s="${i}">${s.auto ? '✓ Automático' : 'Volver a automático'}</button>
+          <span class="gen-est ${cls}">${est}</span>
+        </div>
+        <div class="gen-hint">${s.auto ? `Automático: la app elige cuántos ejercicios entran para que la clase dure entre ${S.minutes - 5} y ${S.minutes} min.` : 'Cantidad fija: la app no la ajusta, solo te dice cuánto dura.'}</div>
       </div>`;
   }
 
@@ -877,21 +1062,32 @@ const Generator = (() => {
         if (!S.days.length) S.days = [wd];
         initSessions(); resuggest(true); return renderSetup(true);
       }
+      if (a === 'min') {
+        S.minutes = +t.dataset.m;
+        try { localStorage.setItem(MIN_KEY, String(S.minutes)); } catch (err) { /* sin almacenamiento: no pasa nada */ }
+        return renderSetup(true);
+      }
       if (a === 'chip') {
         const s = S.sessions[i], g = t.dataset.g;
         s.groups = s.groups.includes(g) ? s.groups.filter(x => x !== g) : s.groups.concat(g);
         s.touchedG = true;
-        if (!s.touchedN) s.n = defaultN(S.an, s.groups);
+        if (s.auto) s.n = defaultN(S.an, s.groups);
         return renderSetup(true);
       }
       if (a === 'preset' || a === 'alt') {
         const s = S.sessions[i];
         const gs = a === 'preset' ? PRESETS.find(p => p.label === t.dataset.p).groups : s.sugg[+t.dataset.k].groups;
         s.groups = gs.filter(g => S.an.poolSize[g] > 0); s.touchedG = true;
-        if (!s.touchedN) s.n = defaultN(S.an, s.groups);
+        if (s.auto) s.n = defaultN(S.an, s.groups);
         return renderSetup(true);
       }
-      if (a === 'n') { const s = S.sessions[i]; s.n = clamp(s.n + (+t.dataset.d), 2, 24); s.touchedN = true; return renderSetup(true); }
+      if (a === 'n') {                                          // tocar − / + pasa a cantidad fija (parte de la que la app calculó)
+        const s = S.sessions[i], plan = quickPlan(i);
+        const base = s.auto && plan ? plan.n : s.n;
+        s.auto = false; s.n = clamp(base + (+t.dataset.d), 2, 24);
+        return renderSetup(true);
+      }
+      if (a === 'auto') { const s = S.sessions[i]; s.auto = true; s.n = defaultN(S.an, s.groups); return renderSetup(true); }
       if (a === 'go') {
         if (S.sessions.some(s => !s.groups.length)) { App.toast('Elegí al menos un músculo'); return; }
         generateDrafts(0);
@@ -914,17 +1110,11 @@ const Generator = (() => {
 
   /* ── 2) Armar y revisar ─────────────────────────────────── */
   function generateDrafts(from) {
-    const prev0 = prevCtx();
     for (let i = from; i < S.sessions.length; i++) {
-      const s = S.sessions[i];
-      let before = null;
-      if (i === 0) before = prev0 ? { keys: prev0.keys, fams: prev0.fams, groups: prev0.groups, daysAgo: s.gap } : null;
-      else { const d = S.drafts[i - 1]; before = { keys: new Set(d.chosen.map(c => c.e.key)), fams: new Set(d.chosen.map(c => c.e.family)), groups: d.groups, daysAgo: s.gap }; }
-      const weekKeys = new Set();
-      for (let j = 0; j < i; j++) S.drafts[j].chosen.forEach(c => weekKeys.add(c.e.key));
-      const d = generate(S.an, { groups: s.groups, n: s.n, prev: before, weekKeys,
-        rng: mulberry32((Date.now() + i * 7919 + Math.floor(Math.random() * 1e6)) >>> 0), uid: S.ctx.uid, forDate: s.date });
-      d.label = s.label;
+      const req = reqFor(i, true);
+      req.rng = mulberry32((Date.now() + i * 7919 + Math.floor(Math.random() * 1e6)) >>> 0);
+      const d = generate(S.an, req);
+      d.label = S.sessions[i].label;
       S.drafts[i] = d;
     }
     S.drafts.length = S.sessions.length;
@@ -938,6 +1128,7 @@ const Generator = (() => {
   }
   function draftHTML(d, i) {
     const week = S.drafts.length > 1;
+    const rg = d.range || [S.minutes - 5, S.minutes];
     let ei = -1;
     const rows = d.items.map(it => {
       if (!isEx(it)) return breakRowHTML(it);
@@ -949,21 +1140,24 @@ const Generator = (() => {
           <div class="gen-row-sub">${esc(it.sets)} × ${esc(it.reps)}${it.dropset ? ' <span class="dropset-badge">+dropset</span>' : ''}${it.note ? ` · <b>${esc(it.note)}</b>` : ''}</div></div>
         <button class="gen-badge" data-gen="badge" data-key="${esc(c.e.key)}" data-name="${esc(c.e.name)}" title="Cambiar músculo">${esc(GL[g] || '?')}</button>
         <button class="gen-swap" data-gen="swap" data-d="${i}" data-e="${ei}" title="Cambiar por otro ejercicio">↻</button>
+        <button class="gen-swap gen-del" data-gen="del" data-d="${i}" data-e="${ei}" title="Sacar este ejercicio">✕</button>
       </div>`;
     }).join('');
+    const cls = durClass(d.minutes, rg[0], rg[1]);
     return `<div class="gen-draft">
       <div class="gen-d-head">
         <div><div class="gen-d-title">${week ? esc(d.label) + ' · ' : ''}${esc(d.name)}</div>
-          <div class="gen-d-meta">${d.chosen.length} ejercicios${d.tmplName ? ' · estilo de “' + esc(trunc(d.tmplName, 28)) + '”' : ''}</div></div>
+          <div class="gen-d-meta">${d.chosen.length} ejercicios · <span class="gen-est ${cls}">≈ ${Math.round(d.minutes)} min${cls === 'long' ? ` · se pasa de ${rg[1]}` : cls === 'short' ? ' · queda corta' : ''}</span>${d.tmplName ? ' · estilo de “' + esc(trunc(d.tmplName, 24)) + '”' : ''}</div></div>
         <button class="gen-mini" data-gen="reroll" data-d="${i}">Mezclar</button>
       </div>
       ${d.warnings.map(w => `<div class="gen-warn">${esc(w)}</div>`).join('')}
       ${rows}
+      <button class="gen-addrow" data-gen="add" data-d="${i}">＋ Sumar un ejercicio</button>
     </div>`;
   }
   function renderPreview(keep) {
     const html = `
-      <div class="gen-hint" style="margin-top:-6px">Mismos ejercicios y últimos pesos de ${esc(S.ctx.user.name)}. Con ↻ cambiás uno por otro del mismo músculo; tocando el músculo lo corregís.</div>
+      <div class="gen-hint" style="margin-top:-6px">Mismos ejercicios y últimos pesos de ${esc(S.ctx.user.name)}. ↻ cambia uno por otro, ✕ lo saca, y tocando el músculo lo corregís.</div>
       ${S.drafts.map((d, i) => draftHTML(d, i)).join('')}
       <div class="gen-footer">
         <button class="btn btn-secondary" data-gen="back">Volver</button>
@@ -975,12 +1169,23 @@ const Generator = (() => {
     root.addEventListener('click', e => {
       const t = e.target.closest('button[data-gen]');
       if (!t) return;
-      const a = t.dataset.gen;
+      const a = t.dataset.gen, di = +t.dataset.d, ei = +t.dataset.e;
       if (a === 'back') return renderSetup(false);
-      if (a === 'reroll') { generateDrafts(+t.dataset.d); return renderPreview(true); }
+      if (a === 'reroll') { generateDrafts(di); return renderPreview(true); }
       if (a === 'swap') {
-        const ok = swapExercise(S.an, S.drafts[+t.dataset.d], +t.dataset.e, Math.random, S.ctx.uid);
-        if (!ok) App.toast('No hay otro ejercicio de ese músculo');
+        const r = swapExercise(S.an, S.drafts[di], ei, Math.random, S.ctx.uid);
+        if (!r) App.toast('No hay otro ejercicio para poner ahí');
+        else if (r.fallback) App.toast(`No quedaban más de ese grupo: puse ${r.name}`, 3000);
+        return renderPreview(true);
+      }
+      if (a === 'del') {
+        if (S.drafts[di].chosen.length <= 1) { App.toast('La rutina necesita al menos un ejercicio'); return; }
+        removeExercise(S.drafts[di], ei, S.an);
+        return renderPreview(true);
+      }
+      if (a === 'add') {
+        const r = addExercise(S.an, S.drafts[di], Math.random, S.ctx.uid);
+        if (!r) App.toast('No hay más ejercicios de esos músculos');
         return renderPreview(true);
       }
       if (a === 'badge') return renderOverride(t.dataset.key, t.dataset.name);
@@ -1093,8 +1298,9 @@ const Generator = (() => {
     open:        ctx => _ui.open(ctx),
     openWeights: ctx => _ui.openWeights(ctx),
     stepWeight,
-    _core: { norm, canonKey, tokenList, classify, familyOf, nameGroups, analyze, suggest, planWeek, generate,
-             swapExercise, lastClassInfo, defaultN, buildName, mulberry32, isVariant, stepWeight, validNote,
+    _core: { norm, canonKey, tokenList, classify, familyOf, nameGroups, analyze, suggest, planWeek, generate, generateOnce,
+             swapExercise, removeExercise, addExercise, estimate, estimateDraft, exSeconds, repInfo, calibratePace,
+             lastClassInfo, defaultN, buildName, mulberry32, isVariant, stepWeight, validNote,
              GROUPS, GL, GU, PRESETS, dkey, pdate, diffDays },
     _ui,
     _helpers: { esc, clamp, fmtDate, startOfDay, loadOverrides, saveOverride, loadEvents, sameSet, GROUPS, GL, GU, PRESETS, mulberry32, dkey, pdate, diffDays, isEx },
