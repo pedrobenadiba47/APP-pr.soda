@@ -47,7 +47,7 @@ const Users = (() => {
     });
   }
 
-  function exportRoutines() {
+  async function exportRoutines() {
     const data = {
       exportedAt: new Date().toISOString(),
       users: users.map(u => ({
@@ -57,15 +57,31 @@ const Users = (() => {
         routines: stripRoutineItems(u.routines)
       }))
     };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
+    const fileName = `pr47-rutinas-${new Date().toISOString().slice(0,10)}.json`;
+    const file     = new File([JSON.stringify(data, null, 2)], fileName, { type: 'application/json' });
+
+    // Celular: menú de compartir (Guardar en Archivos, WhatsApp, Mail, AirDrop…).
+    // Un link de descarga dentro de una app instalada en iPhone no es confiable.
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file], title: 'Rutinas PR.47' });
+        App.toast('Rutinas exportadas');
+        return;
+      } catch (e) {
+        if (e && e.name === 'AbortError') return; // el usuario cerró el menú
+        // cualquier otro error → probamos la descarga directa
+      }
+    }
+
+    // Compu / respaldo: descarga directa
+    const url = URL.createObjectURL(file);
+    const a   = document.createElement('a');
     a.href = url;
-    a.download = `pr47-rutinas-${new Date().toISOString().slice(0,10)}.json`;
+    a.download = fileName;
     document.body.appendChild(a);
     a.click();
     a.remove();
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
     App.toast('Rutinas exportadas');
   }
 
