@@ -545,10 +545,17 @@ const Users = (() => {
     // Regenerate item IDs so they're unique
     (copy.items     || []).forEach(item => { item.id = uid(); });
     (copy.exercises || []).forEach(ex   => { ex.id   = uid(); });
+    // Los ejercicios de la copia toman el peso más reciente que este alumno usó en cada uno
+    let msg = `"${rout.name}" duplicada`;
+    try {
+      const r = Generator.refreshWeights(curUser, rout, copy.items || copy.exercises);
+      if (r.changed.length) msg += ` · ${r.changed.length} peso${r.changed.length > 1 ? 's' : ''} al día`;
+      else if (r.total)     msg += ' · pesos ya al día';
+    } catch (e) { /* si falla el cálculo, queda la copia tal cual */ }
     if (!curUser.routines) curUser.routines = [];
     curUser.routines.push(copy);
     save(); renderRoutines();
-    App.toast(`"${rout.name}" duplicada`);
+    App.toast(msg, 3200);
   }
 
   /* â”€â”€ Copy routine from any user â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
@@ -605,6 +612,7 @@ const Users = (() => {
         copy.name       = srcRout.name + ' (copia)';
         (copy.items     || []).forEach(item => { item.id = uid(); });
         (copy.exercises || []).forEach(ex   => { ex.id   = uid(); });
+        try { Generator.keepNoteTimes(srcRout, copy.items || copy.exercises); } catch (e) { /* no es crítico */ }
 
         if (!curUser.routines) curUser.routines = [];
         curUser.routines.push(copy);

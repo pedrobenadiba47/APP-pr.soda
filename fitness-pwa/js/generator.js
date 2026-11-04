@@ -226,6 +226,40 @@ const Generator = (() => {
     return (n > 1.5e12 && n < 4.1e12) ? n : 0;
   }
 
+  /* ── Duplicar una rutina con los pesos al día ───────────────
+     Cada ejercicio de la copia toma el peso MÁS RECIENTE que ese alumno usó en ese mismo ejercicio,
+     en cualquiera de sus rutinas (no solo en la que se duplica). Los ejercicios sin historial de peso
+     quedan como estaban.
+     Además a cada nota se le guarda la fecha en que realmente se anotó (`noteAt`): la copia nace hoy,
+     y sin esto el generador creería que los pesos viejos de la copia son los más nuevos.            */
+  function refreshWeights(user, source, items, ovr) {
+    const an = analyze(user, ovr || loadOverrides());
+    const srcAt = routineTime(source);
+    const changed = [];
+    (items || []).forEach(it => {
+      if (!isEx(it)) return;
+      const b = an.bank.get(canonKey(it.name));
+      const cur = (it.note || '').trim();
+      if (b && b.weight && b.weight !== cur) {
+        changed.push({ name: it.name, from: cur, to: b.weight });
+        it.note = b.weight;
+        if (b.weightAt) it.noteAt = b.weightAt; else delete it.noteAt;
+      } else if (validNote(cur)) {
+        it.noteAt = it.noteAt || srcAt || undefined;
+        if (!it.noteAt) delete it.noteAt;
+      }
+    });
+    return { changed, total: (items || []).filter(isEx).length };
+  }
+
+  /* Copias sin cambiar pesos (por ejemplo desde otro alumno): solo se conserva la fecha de cada nota */
+  function keepNoteTimes(source, items) {
+    const srcAt = routineTime(source);
+    (items || []).forEach(it => {
+      if (isEx(it) && validNote(it.note) && !it.noteAt && srcAt) it.noteAt = srcAt;
+    });
+  }
+
   function buildMeta(r, idx, ovr) {
     let items = r.items;
     if (!items) items = (r.exercises || []).map(e => Object.assign({}, e, { type: 'exercise' }));
@@ -1395,6 +1429,8 @@ const Generator = (() => {
     open:        ctx => _ui.open(ctx),
     openWeights: ctx => _ui.openWeights(ctx),
     stepWeight,
+    refreshWeights,
+    keepNoteTimes,
     _core: { norm, canonKey, tokenList, classify, familyOf, nameGroups, analyze, suggest, planWeek, generate, generateOnce,
              swapExercise, removeExercise, addExercise, estimate, estimateDraft, exSeconds, repInfo, calibratePace,
              lastClassInfo, defaultN, buildName, mulberry32, isVariant, stepWeight, validNote,
