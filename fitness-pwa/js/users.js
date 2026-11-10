@@ -57,6 +57,8 @@ const Users = (() => {
         color: u.color,
         folders: (u.folders || []).map(f => Object.assign({}, f)),
         weightLog: (u.weightLog || []).map(w => Object.assign({}, w)),
+        weightHidden: (u.weightHidden || []).slice(),
+        weightMerge: Object.assign({}, u.weightMerge || {}),
         routines: stripRoutineItems(u.routines)
       }))
     };
@@ -140,6 +142,14 @@ const Users = (() => {
             target.weightLog = target.weightLog || [];
             const seen = new Set(target.weightLog.map(w => w.key + '|' + w.at));
             iu.weightLog.forEach(w => { if (w && w.key && !seen.has(w.key + '|' + w.at)) { target.weightLog.push(Object.assign({}, w)); seen.add(w.key + '|' + w.at); } });
+          }
+          // ejercicios quitados o juntados en la tabla de pesos
+          if (Array.isArray(iu.weightHidden) && iu.weightHidden.length) {
+            target.weightHidden = [...new Set((target.weightHidden || []).concat(iu.weightHidden.filter(k => typeof k === 'string')))];
+          }
+          if (iu.weightMerge && typeof iu.weightMerge === 'object') {
+            target.weightMerge = target.weightMerge || {};
+            Object.keys(iu.weightMerge).forEach(k => { if (!target.weightMerge[k] && typeof iu.weightMerge[k] === 'string') target.weightMerge[k] = iu.weightMerge[k]; });
           }
         }
 

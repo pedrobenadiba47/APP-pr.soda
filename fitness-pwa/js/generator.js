@@ -303,7 +303,7 @@ const Generator = (() => {
     const changed = [];
     (items || []).forEach(it => {
       if (!isEx(it)) return;
-      const b = an.bank.get(canonKey(it.name));
+      const b = an.bank.get(an.keyOf(it.name));
       const cur = weightOf(it).weight;
       if (b && b.weight && b.weight !== cur) {
         changed.push({ name: it.name, from: cur, to: b.weight });
@@ -323,13 +323,13 @@ const Generator = (() => {
     });
   }
 
-  function buildMeta(r, idx, ovr) {
+  function buildMeta(r, idx, ovr, keyOf) {
     let items = r.items;
     if (!items) items = (r.exercises || []).map(e => Object.assign({}, e, { type: 'exercise' }));
     const exs = items.filter(isEx);
     const gcount = {};
     exs.forEach(e => classify(e.name, ovr).forEach(g => { gcount[g] = (gcount[g] || 0) + 1; }));
-    const keys = new Set(exs.map(e => canonKey(e.name)));
+    const keys = new Set(exs.map(e => (keyOf || canonKey)(e.name)));
     const fams = new Set(exs.map(e => familyOf(e.name, classify(e.name, ovr))));
     const named = (r.groups && r.groups.length) ? r.groups.slice() : nameGroups(r.name || '');
     const load = Object.keys(gcount).filter(g => g !== 'cardio' && (gcount[g] >= 2 || (exs.length <= 5 && gcount[g] >= 1)));
@@ -338,25 +338,39 @@ const Generator = (() => {
              intent, load, all: [...new Set([...intent, ...load])] };
   }
 
+  /* Ejercicios que el profe juntó en la tabla de pesos ("es el mismo que…"): { claveVieja: claveQueQueda } */
+  function mergeKeyFn(user) {
+    const al = (user && user.weightMerge) || {};
+    return name => {
+      let k = canonKey(name), g = 0;
+      while (k && al[k] && al[k] !== k && g++ < 10) k = al[k];
+      return k;
+    };
+  }
+
   function analyze(user, ovr) {
     ovr = ovr || {};
-    const metas = (user.routines || []).map((r, i) => buildMeta(r, i, ovr)).filter(m => m.items.length)
+    const keyOf = mergeKeyFn(user);
+    const metas = (user.routines || []).map((r, i) => buildMeta(r, i, ovr, keyOf)).filter(m => m.items.length)
       .sort((a, b) => (a.at - b.at) || (a.idx - b.idx));
 
     /* banco de ejercicios del alumno */
     const bank = new Map();
     metas.forEach((m, mi) => {
       m.exs.forEach((it, ei) => {
-        const key = canonKey(it.name);
+        const key = keyOf(it.name);
         if (!key) return;
+        const own = canonKey(it.name) === key;          // false = nombre que se juntó con otro
         let b = bank.get(key);
         if (!b) {
           const groups = classify(it.name, ovr);
-          b = { key, name: it.name, tok: tokenList(it.name), groups, family: familyOf(it.name, groups), move: moveOf(it.name),
+          b = { key, name: it.name, nameOwn: own, aliases: new Map(), tok: tokenList(it.name), groups, family: familyOf(it.name, groups), move: moveOf(it.name),
                 count: 0, lastMi: -1, occ: [], relSum: 0, relN: 0 };
           bank.set(key, b);
         }
-        b.count++; b.lastMi = mi; b.name = it.name;        // gana el nombre más reciente
+        b.count++; b.lastMi = mi;
+        if (own || !b.nameOwn) { b.name = it.name; if (own) b.nameOwn = true; }   // gana el nombre más reciente del que queda
+        if (!own) b.aliases.set(canonKey(it.name), it.name);
         const wt = weightOf(it);
         b.occ.push({ mi, at: m.at, noteAt: it.noteAt || m.at, sets: it.sets, reps: it.reps,
                      dropset: !!it.dropset, weight: wt.weight, tech: wt.tech, normal: m.exCount >= 4 });
@@ -367,7 +381,7 @@ const Generator = (() => {
     const logBy = new Map();
     (user.weightLog || []).forEach(l => {
       if (!l || !l.name) return;
-      const k = canonKey(l.name);
+      const k = keyOf(l.name);
       if (!logBy.has(k)) logBy.set(k, []);
       logBy.get(k).push({ mi: 1e9, noteAt: l.at || 0, weight: String(l.weight || '').trim(), tech: String(l.tech || '').trim(), manual: true });
     });
@@ -401,7 +415,7 @@ const Generator = (() => {
     const poolSize = {}; GROUPS.forEach(g => { poolSize[g.key] = 0; });
     for (const b of bank.values()) b.groups.forEach(g => { poolSize[g]++; });
 
-    return { user, metas, bank, groupPos, poolSize, prof: buildProfile(metas), pace: calibratePace(metas), ovr };
+    return { user, metas, bank, groupPos, poolSize, prof: buildProfile(metas), pace: calibratePace(metas), ovr, keyOf };
   }
 
   /* Cómo arma las clases este alumno (últimas 10 rutinas) */

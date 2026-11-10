@@ -40,12 +40,15 @@ const WeightsTable = (() => {
     opts = opts || {};
     const an = Generator.analyze(user);
     const by = {}; let hidden = 0;
+    const removedKeys = new Set(user.weightHidden || []);   // los que el profe quitó de la tabla
+    const removed = [];
     an.bank.forEach(b => {
+      if (removedKeys.has(b.key)) { removed.push({ key: b.key, name: b.name, weight: b.weight || '' }); return; }
       if (!b.weight || NO_WEIGHT.test(b.weight.trim())) {
         if (!opts.showNoWeight) { hidden++; return; }
         if (!b.weight) {                       // nunca se le anotó peso: se muestra para poder cargarlo desde la tabla
           (by[primary(b.groups)] = by[primary(b.groups)] || []).push({ key: b.key, name: b.name, weight: '—', tech: b.tech || '', at: 0,
-            prev: '', trend: '', history: [], count: b.count, empty: true });
+            prev: '', trend: '', history: [], count: b.count, empty: true, merged: mergedOf(b) });
           return;
         }
       }
@@ -54,14 +57,17 @@ const WeightsTable = (() => {
       const prev = h.length > 1 ? h[h.length - 2].weight : '';
       (by[g] = by[g] || []).push({
         key: b.key, name: b.name, weight: b.weight, tech: b.tech || '', at: b.weightAt || 0,
-        prev, trend: trend(prev, b.weight), history: h.slice().reverse(), count: b.count,
+        prev, trend: trend(prev, b.weight), history: h.slice().reverse(), count: b.count, merged: mergedOf(b),
       });
     });
     const sections = ORDER.concat('otros').filter(g => by[g] && by[g].length).map(g => ({
       key: g, label: LABEL[g], rows: by[g].sort((x, y) => x.name.localeCompare(y.name, 'es', { sensitivity: 'base' })),
     }));
-    return { sections, hidden, total: sections.reduce((s, x) => s + x.rows.length, 0), name: user.name };
+    removed.sort((x, y) => x.name.localeCompare(y.name, 'es', { sensitivity: 'base' }));
+    return { sections, hidden, removed, total: sections.reduce((s, x) => s + x.rows.length, 0), name: user.name };
   }
+  // otros nombres que se juntaron en este renglón
+  const mergedOf = b => b.aliases ? [...b.aliases].map(([key, name]) => ({ key, name })) : [];
 
   /* ── Texto para mandar por WhatsApp ─────────────────────── */
   function asText(user) {
@@ -166,7 +172,7 @@ const WeightsTable = (() => {
       <div class="wt-info">
         <div class="wt-name">${esc(r.name)}</div>
         ${r.tech ? `<div class="wt-tech">${esc(r.tech)}</div>` : ''}
-        <div class="wt-meta">${r.at ? 'Desde ' + dmy(r.at) : ''}${r.prev ? ` · antes ${esc(r.prev)}` : ''}</div>
+        <div class="wt-meta">${[r.at ? 'Desde ' + dmy(r.at) : '', r.prev ? `antes ${esc(r.prev)}` : '', r.merged && r.merged.length ? `juntado con ${r.merged.length} nombre${r.merged.length > 1 ? 's' : ''} más` : ''].filter(Boolean).join(' · ')}</div>
       </div>
       <div class="wt-weight">${esc(r.weight)}${tr}</div>
     </button>`;
@@ -205,7 +211,13 @@ const WeightsTable = (() => {
           <div class="wt-sec-head"><span>${esc(s.label)}</span><small>${s.rows.length}</small></div>
           ${s.rows.map(rowHTML).join('')}
         </div>`).join('') || `<div class="empty-state"><p>${q ? 'Ningún ejercicio coincide.' : 'Todavía no hay pesos cargados.<br><strong>Anotalos en cada ejercicio.</strong>'}</p></div>`}
-      ${t.hidden || cur.showNoWeight ? `<button class="wt-toggle" id="wt-nw">${cur.showNoWeight ? 'Ocultar los ejercicios sin peso' : `Mostrar ${t.hidden} ejercicio${t.hidden > 1 ? 's' : ''} sin peso`}</button>` : ''}`;
+      ${t.hidden || cur.showNoWeight ? `<button class="wt-toggle" id="wt-nw">${cur.showNoWeight ? 'Ocultar los ejercicios sin peso' : `Mostrar ${t.hidden} ejercicio${t.hidden > 1 ? 's' : ''} sin peso`}</button>` : ''}
+      ${t.removed.length ? `<button class="wt-toggle" id="wt-rm">${cur.showRemoved ? 'Ocultar los quitados' : `Quitados de la tabla (${t.removed.length})`}</button>
+        ${cur.showRemoved ? `<div class="wt-removed">${t.removed.map(r => `
+          <div class="wt-rm-row">
+            <div class="wt-info"><div class="wt-name">${esc(r.name)}</div>${r.weight ? `<div class="wt-meta">${esc(r.weight)}</div>` : ''}</div>
+            <button class="btn btn-secondary btn-sm" data-restore="${esc(r.key)}">Volver a mostrar</button>
+          </div>`).join('')}</div>` : ''}` : ''}`;
 
     root.querySelector('#wt-back').addEventListener('click', () => { const cb = cur.onBack; cur = null; cb && cb(); });
     root.querySelector('#wt-open-pdf').addEventListener('click', () => openPreview(cur.user));
@@ -213,6 +225,12 @@ const WeightsTable = (() => {
     const s = root.querySelector('#wt-search');
     s.addEventListener('input', () => { cur.q = s.value; const pos = s.selectionStart; render(); const n = document.getElementById('wt-search'); n.focus(); try { n.setSelectionRange(pos, pos); } catch (e) { /* ok */ } });
     const nw = root.querySelector('#wt-nw'); if (nw) nw.addEventListener('click', () => { cur.showNoWeight = !cur.showNoWeight; render(); });
+    const rm = root.querySelector('#wt-rm'); if (rm) rm.addEventListener('click', () => { cur.showRemoved = !cur.showRemoved; render(); });
+    root.querySelectorAll('[data-restore]').forEach(b => b.addEventListener('click', () => {
+      const u = cur.user, k = b.dataset.restore;
+      u.weightHidden = (u.weightHidden || []).filter(x => x !== k);
+      saveCur(); render(); App.toast('Vuelve a estar en la tabla');
+    }));
     root.querySelectorAll('.wt-row').forEach(b => b.addEventListener('click', () => openHistory(t, b.dataset.key)));
   }
 
@@ -246,6 +264,16 @@ const WeightsTable = (() => {
         <input id="wt-new-t" class="form-input" value="${esc(row.tech)}" placeholder="Ej: bajar lento, codos pegados" autocomplete="off" />
         <div class="wt-edit-hint">Queda como el último peso: lo ves acá, en el PDF y en las rutinas nuevas que generes o dupliques.</div>
       </div>
+      <div class="wt-org">
+        <div class="wt-edit-label">¿Está repetido o sobra?</div>
+        ${row.merged.length ? `<div class="wt-merged">${row.merged.map(m => `
+          <div class="wt-merged-row"><span>Incluye también <b>${esc(m.name)}</b></span><button type="button" class="wt-link" data-unmerge="${esc(m.key)}">Separar</button></div>`).join('')}</div>` : ''}
+        <div class="wt-org-btns">
+          <button type="button" class="btn btn-secondary btn-sm" id="wt-merge">Es el mismo que otro…</button>
+          <button type="button" class="btn btn-danger btn-sm" id="wt-hide">Quitar de la tabla</button>
+        </div>
+        <div class="wt-edit-hint">Solo ordena la tabla y el PDF. Tus rutinas no cambian.</div>
+      </div>
       ${row.history.length ? `<div class="wt-hist-label">Cómo fue cambiando</div>
       ${row.history.map((h, i) => `<div class="wt-hist-row${i === 0 ? ' now' : ''}"><span>${h.at ? dmy(h.at) : '—'}${h.manual ? ' <em class="wt-hist-tag">tabla</em>' : ''}</span><b>${esc(h.weight)}</b></div>`).join('')}` : ''}
       <div class="modal-footer">
@@ -255,6 +283,23 @@ const WeightsTable = (() => {
     const wIn = document.getElementById('wt-new-w'), tIn = document.getElementById('wt-new-t');
     document.querySelectorAll('.wt-bump').forEach(b => b.addEventListener('click', () => { wIn.value = bump(wIn.value || row.weight, parseFloat(b.dataset.d)); }));
     document.getElementById('wt-hist-close').addEventListener('click', App.closeModal);
+    document.getElementById('wt-merge').addEventListener('click', () => openMergePicker(row));
+    document.getElementById('wt-hide').addEventListener('click', () => {
+      const u = cur.user;
+      u.weightHidden = (u.weightHidden || []).filter(k => k !== row.key).concat(row.key);
+      saveCur(); App.closeModal(); render();
+      App.undoToast(`Quitado: ${row.name}`, () => {
+        u.weightHidden = (u.weightHidden || []).filter(k => k !== row.key);
+        saveCur(); if (cur) render();
+      });
+    });
+    document.querySelectorAll('[data-unmerge]').forEach(b => b.addEventListener('click', () => {
+      const u = cur.user, k = b.dataset.unmerge, before = u.weightMerge && u.weightMerge[k];
+      if (!before) return;
+      delete u.weightMerge[k];
+      saveCur(); App.closeModal(); render();
+      App.undoToast('Separado otra vez', () => { u.weightMerge = u.weightMerge || {}; u.weightMerge[k] = before; saveCur(); if (cur) render(); });
+    }));
     document.getElementById('wt-hist-save').addEventListener('click', () => {
       const w = wIn.value.trim(), tech = tIn.value.trim();
       const wChanged = !!w && w !== (hasW ? row.weight : '');
@@ -277,9 +322,52 @@ const WeightsTable = (() => {
     });
   }
 
+  const saveCur = () => { if (cur && cur.save) cur.save(); };
+
+  /* "Es el mismo que…": este renglón se junta con el que elijas (queda el nombre elegido y el peso más nuevo) */
+  function openMergePicker(row) {
+    const t = build(cur.user, { showNoWeight: true });
+    const mine = t.sections.find(s => s.rows.some(r => r.key === row.key));
+    const secs = (mine ? [mine] : []).concat(t.sections.filter(s => s !== mine))
+      .map(s => ({ label: s.label, rows: s.rows.filter(r => r.key !== row.key) })).filter(s => s.rows.length);
+    App.openModal('Es el mismo que…', `
+      <p class="wt-pick-hint">Elegí el ejercicio que queda. <b>${esc(row.name)}</b> se junta con ese en un solo renglón, con el peso más nuevo de los dos.</p>
+      <input id="wt-pick-q" class="form-input wt-search" placeholder="Buscar ejercicio…" autocomplete="off" />
+      <div id="wt-pick-list">${secs.map(s => `
+        <div class="wt-pick-sec" data-sec>
+          <div class="wt-sec-head"><span>${esc(s.label)}</span></div>
+          ${s.rows.map(r => `<button type="button" class="wt-row wt-pick-row" data-to="${esc(r.key)}" data-n="${esc(r.name.toLowerCase())}">
+            <div class="wt-info"><div class="wt-name">${esc(r.name)}</div></div>
+            <div class="wt-weight">${esc(r.weight)}</div>
+          </button>`).join('')}
+        </div>`).join('')}</div>
+      <div class="modal-footer"><button class="btn btn-secondary" id="wt-pick-back">Volver</button></div>`);
+    const q = document.getElementById('wt-pick-q');
+    q.addEventListener('input', () => {
+      const v = q.value.trim().toLowerCase();
+      document.querySelectorAll('#wt-pick-list [data-sec]').forEach(sec => {
+        let any = false;
+        sec.querySelectorAll('.wt-pick-row').forEach(b => { const ok = !v || b.dataset.n.includes(v); b.classList.toggle('hidden', !ok); any = any || ok; });
+        sec.classList.toggle('hidden', !any);
+      });
+    });
+    document.getElementById('wt-pick-back').addEventListener('click', () => openHistory(build(cur.user, { showNoWeight: true }), row.key));
+    document.querySelectorAll('.wt-pick-row').forEach(b => b.addEventListener('click', () => {
+      const u = cur.user;
+      u.weightMerge = u.weightMerge || {};
+      let to = b.dataset.to, g = 0;
+      while (u.weightMerge[to] && g++ < 10) to = u.weightMerge[to];
+      if (to === row.key) return;
+      u.weightMerge[row.key] = to;
+      saveCur(); App.closeModal(); render();
+      const name = b.querySelector('.wt-name').textContent;
+      App.undoToast(`Juntado con ${name}`, () => { delete u.weightMerge[row.key]; saveCur(); if (cur) render(); });
+    }));
+  }
+
   function open(user, onBack, opts) {
     opts = opts || {};
-    cur = { user, onBack, q: opts.query || '', showNoWeight: false, save: opts.save };
+    cur = { user, onBack, q: opts.query || '', showNoWeight: false, showRemoved: false, save: opts.save };
     render();
     if (opts.focus) {
       const t = build(user, { showNoWeight: true });

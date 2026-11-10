@@ -276,22 +276,46 @@ const Timer = (() => {
     } catch(e) {}
   }
 
-  // Schedule one whistle-like tone: sine sweep f0→f1, starting at startT seconds
-  function whistle(ctx, f0, f1, startT, durMs, vol) {
-    const t0   = ctx.currentTime + startT;
-    const durS = durMs / 1000;
-    const osc  = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = 'sine';
-    osc.connect(gain); gain.connect(ctx.destination);
-    osc.frequency.setValueAtTime(f0, t0);
-    osc.frequency.linearRampToValueAtTime(f1, t0 + durS * 0.75);
-    gain.gain.setValueAtTime(0.001, t0);
-    gain.gain.linearRampToValueAtTime(vol, t0 + 0.010);
-    gain.gain.setValueAtTime(vol, t0 + durS * 0.65);
-    gain.gain.exponentialRampToValueAtTime(0.001, t0 + durS);
-    osc.start(t0);
-    osc.stop(t0 + durS + 0.05);
+  // Ruido blanco (el "aire" del soplido), se arma una vez
+  let _noise = null;
+  function noiseBuf(ctx) {
+    if (_noise && _noise.sampleRate === ctx.sampleRate) return _noise;
+    const len = Math.floor(ctx.sampleRate * 1.5), b = ctx.createBuffer(1, len, ctx.sampleRate), d = b.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    return (_noise = b);
+  }
+
+  // Silbato de entrenador (de bolita): tono agudo de ~3 kHz con el trino que hace la bolita
+  // al girar (~30 cortes por segundo), un poco de aire y la subida/bajada del soplido.
+  function whistle(ctx, startT, durMs, vol, pitch) {
+    const t0 = ctx.currentTime + startT, d = Math.max(0.09, durMs / 1000), f = pitch || 2950, end = t0 + d;
+    const out = ctx.createGain(); out.connect(ctx.destination);
+    out.gain.setValueAtTime(0.0001, t0);
+    out.gain.exponentialRampToValueAtTime(vol, t0 + 0.02);
+    out.gain.setValueAtTime(vol, end - 0.045);
+    out.gain.exponentialRampToValueAtTime(0.0001, end);
+    // trino de la bolita: la intensidad y la altura tiemblan juntas
+    const trill = ctx.createGain(); trill.gain.setValueAtTime(0.58, t0); trill.connect(out);
+    const lfo = ctx.createOscillator(); lfo.type = 'triangle';
+    lfo.frequency.setValueAtTime(29, t0); lfo.frequency.linearRampToValueAtTime(35, end);
+    const am = ctx.createGain(); am.gain.value = 0.42; lfo.connect(am); am.connect(trill.gain);     // 0,16 … 1
+    const fm = ctx.createGain(); fm.gain.value = f * 0.028; lfo.connect(fm);
+    const tone = (mul, amp) => {
+      const o = ctx.createOscillator(); o.type = 'sine';
+      o.frequency.setValueAtTime(f * mul * 0.9, t0);                     // arranca un poco más grave y sube
+      o.frequency.exponentialRampToValueAtTime(f * mul, t0 + 0.04);
+      o.frequency.setValueAtTime(f * mul, end - 0.04);
+      o.frequency.exponentialRampToValueAtTime(f * mul * 0.96, end);     // al soltar, baja apenas
+      const k = ctx.createGain(); k.gain.value = mul; fm.connect(k); k.connect(o.frequency);
+      const g = ctx.createGain(); g.gain.value = amp; o.connect(g); g.connect(trill);
+      o.start(t0); o.stop(end + 0.05);
+    };
+    tone(1, 0.62); tone(1.022, 0.12); tone(2, 0.07);                       // tono + un poco de aspereza + armónico
+    const n = ctx.createBufferSource(); n.buffer = noiseBuf(ctx); n.loop = true;
+    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = f; bp.Q.value = 3.5;
+    const ng = ctx.createGain(); ng.gain.value = 0.35; n.connect(bp); bp.connect(ng); ng.connect(trill);
+    n.start(t0, Math.random()); n.stop(end + 0.05);
+    lfo.start(t0); lfo.stop(end + 0.05);
   }
 
   // Beep limpio: un tono con ataque y caída suaves
@@ -336,10 +360,10 @@ const Timer = (() => {
 
   /* Cada juego de sonidos tiene tres: cuenta regresiva (3-2-1), cambio de fase y final */
   const SOUNDS = {
-    whistle: {   // silbato de árbitro (el de siempre)
-      count:  (c, v) => whistle(c, 1760, 1920, 0, 80, 0.55 * v),
-      change: (c, v) => { whistle(c, 1800, 2050, 0, 130, 0.58 * v); whistle(c, 1800, 2050, 0.22, 130, 0.58 * v); },
-      finish: (c, v) => { whistle(c, 1800, 2100, 0, 150, 0.62 * v); whistle(c, 1800, 2100, 0.27, 150, 0.62 * v); whistle(c, 1700, 2350, 0.58, 600, 0.68 * v); },
+    whistle: {   // silbato de entrenador: "fit" en la cuenta, un pitazo al cambiar, "fit-fit-fiiiit" al final
+      count:  (c, v) => whistle(c, 0, 120, 0.62 * v),
+      change: (c, v) => whistle(c, 0, 560, 0.8 * v),
+      finish: (c, v) => { whistle(c, 0, 170, 0.75 * v); whistle(c, 0.27, 170, 0.75 * v); whistle(c, 0.56, 1100, 0.85 * v); },
     },
     beep: {      // beep de gimnasio, grave y claro
       count:  (c, v) => beep(c, 880, 0, 110, 0.5 * v),
@@ -562,9 +586,20 @@ const Timer = (() => {
   }
 
   /* ─── Init ───────────────────────────────────────────────── */
+  /* El número del timer se agranda o achica junto con el círculo: así el aro nunca lo pisa */
+  function fitRingText() {
+    const ring = document.querySelector('#interval-running .progress-ring-container');
+    if (!ring) return;
+    const set = () => { const w = ring.getBoundingClientRect().width; if (w > 0) ring.style.setProperty('--ring', Math.round(w) + 'px'); };
+    if (window.ResizeObserver) new ResizeObserver(set).observe(ring);
+    window.addEventListener('resize', set);
+    set();
+  }
+
   function init() {
     loadPrefs();
     initTabs();
+    fitRingText();
     el('sw-toggle').addEventListener('click', swToggle);
     el('sw-lap').addEventListener('click', () => {
       if (swRunning)       swLap();
