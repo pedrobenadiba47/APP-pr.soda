@@ -3,6 +3,10 @@
    Cronómetro: toggle play/pause, color inversion
    Timer: prep(azul) / ejercicio(verde) / descanso(rojo)
    + Tiempo total de circuito con countdown
+
+   Mejoras: el timer usa la HORA REAL (no se atrasa ni se frena si la
+   pantalla se apaga un rato), mantiene la pantalla encendida mientras
+   corre, guarda la última configuración y tiene ajustes de sonido.
 ============================================================ */
 
 const Timer = (() => {
@@ -20,6 +24,7 @@ const Timer = (() => {
   }
 
   function fmtMS(sec) {
+    sec = Math.max(0, Math.round(sec));
     return `${String(Math.floor(sec/60)).padStart(2,'0')}:${String(sec%60).padStart(2,'0')}`;
   }
 
@@ -29,6 +34,33 @@ const Timer = (() => {
     document.body.classList.remove('sw-running','it-prep','it-exercise','it-rest');
     if (cls) document.body.classList.add(cls);
   }
+
+  /* ─── Preferencias (sonido, volumen, vibración) ──────────── */
+  const PREF_KEY = 'fitpro_timer_prefs_v1';
+  const CFG_KEY  = 'fitpro_timer_cfg_v1';
+  const prefs = { sound: 'whistle', vol: 0.8, vibrate: true };
+  function loadPrefs() { try { Object.assign(prefs, JSON.parse(localStorage.getItem(PREF_KEY) || '{}')); } catch (e) { /* sin almacenamiento */ } }
+  function savePrefs() { try { localStorage.setItem(PREF_KEY, JSON.stringify(prefs)); } catch (e) { /* ok */ } }
+
+  /* ─── Pantalla siempre encendida mientras corre algo ─────── */
+  let wakeLock = null;
+  async function lockScreen() {
+    try {
+      if ('wakeLock' in navigator && !wakeLock) {
+        wakeLock = await navigator.wakeLock.request('screen');
+        wakeLock.addEventListener('release', () => { wakeLock = null; });
+      }
+    } catch (e) { wakeLock = null; }
+  }
+  function unlockScreen() { try { if (wakeLock) wakeLock.release(); } catch (e) { /* ok */ } wakeLock = null; }
+  let externalActive = false;                   // una rutina cronometrada (Runner) también necesita la pantalla
+  const somethingRunning = () => swRunning || running || externalActive;
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') return;
+    if (somethingRunning()) lockScreen();      // el sistema la suelta al ir a segundo plano
+    if (running) tick();                       // se pone al día con la hora real
+  });
 
   /* ─── syncBodyState — tab-aware ─────────────────────────── */
   function syncBodyState() {
@@ -94,10 +126,14 @@ const Timer = (() => {
   function renderLaps() {
     const container = el('sw-laps');
     if (!laps.length) { container.innerHTML = ''; return; }
+    // la vuelta más rápida y la más lenta se marcan (cuando hay 3 o más)
+    const splits = laps.map(l => l.split);
+    const best = Math.min(...splits), worst = Math.max(...splits);
     container.innerHTML = [...laps].reverse().map((lap, i) => {
       const { main: sm, ms: sms } = fmtStopwatch(lap.split);
       const { main: tm }          = fmtStopwatch(lap.total);
-      return `<div class="lap-item${i === 0 ? ' lap-item--latest' : ''}">
+      const tag = laps.length >= 3 ? (lap.split === best ? ' lap-item--best' : lap.split === worst ? ' lap-item--worst' : '') : '';
+      return `<div class="lap-item${i === 0 ? ' lap-item--latest' : ''}${tag}">
         <span class="lap-num">Lap ${lap.n}</span>
         <span class="lap-split">${sm}<span class="lap-split-ms">${sms}</span></span>
         <span class="lap-total">${tm}</span>
@@ -112,12 +148,14 @@ const Timer = (() => {
       cancelAnimationFrame(swRaf);
       setBodyState(null);
       swSetIcon(false);
+      if (!somethingRunning()) unlockScreen();
     } else {
       swRunning = true;
       swStart   = Date.now() - swElapsed;
       swRaf     = requestAnimationFrame(swTick);
       setBodyState('sw-running');
       swSetIcon(true);
+      lockScreen();
     }
     swSetLapBtn();
   }
@@ -134,6 +172,7 @@ const Timer = (() => {
     setBodyState(null);
     swSetIcon(false);
     swSetLapBtn();
+    if (!somethingRunning()) unlockScreen();
   }
 
   /* ─── INTERVAL TIMER ─────────────────────────────────────── */
@@ -143,17 +182,18 @@ const Timer = (() => {
   let phase        = 'exercise';
   let curSet       = 1;
   let curRound     = 1;
-  let remain       = 0;
-  let total        = 0;
-  let totalCircuit = 0;   // duración total del circuito en segundos
-  let totalRemain  = 0;   // segundos restantes del circuito completo
+  let remain       = 0;       // segundos que faltan de la fase (se calcula con la hora real)
+  let total        = 0;       // duración de la fase en segundos
+  let totalRemain  = 0;       // segundos que faltan del circuito completo
   let running      = false;
+  let phaseEnd     = 0;       // hora (ms) en que termina la fase actual
+  let circuitEnd   = 0;       // hora (ms) en que termina todo el circuito
+  let pausedAt     = 0, pausedRemainMs = 0;
   let tickId       = null;
+  let lastBeepSec  = -1;
 
   // ── Arc smooth animation via rAF ──────────────────────────
-  let arcRaf         = null;
-  let arcPhaseStart  = 0;   // Date.now() when the current phase began
-  let arcPhaseTotalMs = 0;  // total duration of the current phase in ms
+  let arcRaf = null;
 
   function setArc(r, t) {
     // Discrete set (used when paused / finished)
@@ -162,15 +202,12 @@ const Timer = (() => {
     arc.style.strokeDashoffset = CIRC * (1 - (t > 0 ? r / t : 0));
   }
 
-  function startArcRaf(totalSec, elapsedSec = 0) {
+  function startArcRaf() {
     stopArcRaf();
-    arcPhaseTotalMs = totalSec * 1000;
-    arcPhaseStart   = Date.now() - elapsedSec * 1000;
     const arc = el('progress-arc');
     (function frame() {
       if (!running || !arc) { arcRaf = null; return; }
-      const elapsed  = Date.now() - arcPhaseStart;
-      const fraction = Math.max(0, 1 - elapsed / arcPhaseTotalMs);
+      const fraction = Math.max(0, Math.min(1, (phaseEnd - Date.now()) / (total * 1000 || 1)));
       arc.style.strokeDashoffset = CIRC * (1 - fraction);
       arcRaf = requestAnimationFrame(frame);
     })();
@@ -213,7 +250,7 @@ const Timer = (() => {
     if (!running) setArc(remain, total);
   }
 
-  function vibrate(p) { if (navigator.vibrate) navigator.vibrate(p); }
+  function vibrate(p) { if (prefs.vibrate && navigator.vibrate) navigator.vibrate(p); }
 
   /* ─── Audio — shared context (iOS fix) ──────────────────── */
   // One persistent AudioContext, unlocked during a user-gesture handler.
@@ -257,94 +294,124 @@ const Timer = (() => {
     osc.stop(t0 + durS + 0.05);
   }
 
+  // Beep limpio: un tono con ataque y caída suaves
+  function beep(ctx, freq, startT, durMs, vol, type) {
+    const t0 = ctx.currentTime + startT, d = durMs / 1000;
+    const osc = ctx.createOscillator(), g = ctx.createGain();
+    osc.type = type || 'sine';
+    osc.frequency.setValueAtTime(freq, t0);
+    osc.connect(g); g.connect(ctx.destination);
+    g.gain.setValueAtTime(0.001, t0);
+    g.gain.linearRampToValueAtTime(vol, t0 + 0.008);
+    g.gain.setValueAtTime(vol, t0 + d * 0.6);
+    g.gain.exponentialRampToValueAtTime(0.001, t0 + d);
+    osc.start(t0); osc.stop(t0 + d + 0.05);
+  }
+
+  // Campana: varios armónicos que se apagan despacio
+  function bell(ctx, freq, startT, vol, decay) {
+    const t0 = ctx.currentTime + startT, d = decay || 1.3;
+    [[1, 1], [2.76, 0.55], [5.4, 0.3], [8.93, 0.16]].forEach(([mul, amp]) => {
+      const osc = ctx.createOscillator(), g = ctx.createGain();
+      osc.type = 'sine'; osc.frequency.setValueAtTime(freq * mul, t0);
+      osc.connect(g); g.connect(ctx.destination);
+      g.gain.setValueAtTime(0.001, t0);
+      g.gain.linearRampToValueAtTime(vol * amp, t0 + 0.004);
+      g.gain.exponentialRampToValueAtTime(0.001, t0 + d / (1 + mul * 0.18));
+      osc.start(t0); osc.stop(t0 + d + 0.05);
+    });
+  }
+
   // Always resume before playing — ctx.resume() returns a Promise so we
   // wait for it before scheduling oscillators. This fixes iOS silence bug
   // where the context is technically unlocked but not yet 'running'.
   function play(fn) {
     try {
+      if (prefs.sound === 'none') return;
       const ctx = getCtx();
       if (!ctx) return;
-      ctx.resume().then(() => { try { fn(ctx); } catch(e) {} });
+      ctx.resume().then(() => { try { fn(ctx, Math.max(0.05, Math.min(1, prefs.vol))); } catch(e) {} });
     } catch(e) {}
   }
 
-  /* Short high whistle tweet — fires at 3, 2, 1 seconds remaining */
-  function countdownBeep() {
-    play(ctx => whistle(ctx, 1760, 1920, 0, 80, 0.55));
+  /* Cada juego de sonidos tiene tres: cuenta regresiva (3-2-1), cambio de fase y final */
+  const SOUNDS = {
+    whistle: {   // silbato de árbitro (el de siempre)
+      count:  (c, v) => whistle(c, 1760, 1920, 0, 80, 0.55 * v),
+      change: (c, v) => { whistle(c, 1800, 2050, 0, 130, 0.58 * v); whistle(c, 1800, 2050, 0.22, 130, 0.58 * v); },
+      finish: (c, v) => { whistle(c, 1800, 2100, 0, 150, 0.62 * v); whistle(c, 1800, 2100, 0.27, 150, 0.62 * v); whistle(c, 1700, 2350, 0.58, 600, 0.68 * v); },
+    },
+    beep: {      // beep de gimnasio, grave y claro
+      count:  (c, v) => beep(c, 880, 0, 110, 0.5 * v),
+      change: (c, v) => beep(c, 1320, 0, 380, 0.55 * v),
+      finish: (c, v) => { beep(c, 1047, 0, 160, 0.55 * v); beep(c, 1319, 0.2, 160, 0.55 * v); beep(c, 1568, 0.4, 600, 0.6 * v); },
+    },
+    bell: {      // campana, más suave
+      count:  (c, v) => beep(c, 1500, 0, 45, 0.42 * v, 'triangle'),
+      change: (c, v) => bell(c, 880, 0, 0.5 * v),
+      finish: (c, v) => { bell(c, 660, 0, 0.5 * v, 1.6); bell(c, 880, 0.4, 0.5 * v, 1.6); bell(c, 1320, 0.8, 0.55 * v, 2.2); },
+    },
+  };
+  function playSound(kind) {
+    const set = SOUNDS[prefs.sound] || SOUNDS.whistle;
+    play((ctx, v) => set[kind](ctx, v));
+  }
+  const countdownBeep = () => playSound('count');
+  const changeBeep    = () => playSound('change');
+  const finishBeep    = () => playSound('finish');
+
+  /* ─── Fases: todo se calcula con la hora real ────────────── */
+  const phaseSecs = ph => ph === 'prep' ? cfg.prepSec : ph === 'exercise' ? cfg.exSec : cfg.restSec;
+
+  function enterPhase(ph, startAt) {
+    phase = ph; total = phaseSecs(ph);
+    phaseEnd = startAt + total * 1000;    // arranca donde terminó la anterior: sin deriva
+    lastBeepSec = -1;
   }
 
-  /* Double referee whistle — phase change (second hits 0) */
-  function changeBeep() {
-    play(ctx => {
-      whistle(ctx, 1800, 2050, 0,    130, 0.58);
-      whistle(ctx, 1800, 2050, 0.22, 130, 0.58);
-    });
+  /* pasa a la fase que sigue; devuelve qué pasó: 'exercise' | 'rest' | 'set' | 'round' | 'done' */
+  function advance() {
+    const at = phaseEnd;
+    if (phase === 'prep') { enterPhase('exercise', at); return 'exercise'; }
+    if (phase === 'exercise' && cfg.restSec > 0) { enterPhase('rest', at); return 'rest'; }
+    if (curSet < cfg.sets)        { curSet++; enterPhase('exercise', at); return 'set'; }
+    if (curRound < cfg.rounds)    { curRound++; curSet = 1; enterPhase('exercise', at); return 'round'; }
+    return 'done';
   }
 
-  /* Three whistle blasts — circuit complete (tweet · tweet · TWEETTT) */
-  function finishBeep() {
-    play(ctx => {
-      whistle(ctx, 1800, 2100, 0,    150, 0.62);
-      whistle(ctx, 1800, 2100, 0.27, 150, 0.62);
-      whistle(ctx, 1700, 2350, 0.58, 600, 0.68);
-    });
-  }
+  const VIBES = { exercise: [150], rest: [200, 80, 200], set: [100, 50, 100, 50, 220], round: [300, 100, 300] };
 
-  function startExercise() {
-    phase  = 'exercise';
-    remain = cfg.exSec;
-    total  = cfg.exSec;
-    vibrate([150]);
+  function tick() {
+    if (!running) return;
+    const now = Date.now();
+    let last = null, guard = 0;
+    while (now >= phaseEnd && guard++ < 2000) {     // si la app estuvo dormida, avanza todas las fases que pasaron
+      const late = now - phaseEnd;
+      const r = advance();
+      last = { r, late };
+      if (r === 'done') break;
+    }
+    if (last && last.r === 'done') { finish(); return; }
+    if (last && last.late < 1500) {                 // aviso solo si el cambio es de ahora (no uno viejo)
+      changeBeep(); vibrate(VIBES[last.r] || [150]);
+    }
+    remain      = Math.max(0, Math.ceil((phaseEnd - now) / 1000));
+    totalRemain = Math.max(0, Math.ceil((circuitEnd - now) / 1000));
     updateUI();
-    if (running) { startArcRaf(total); tick(); }
+    if (last) startArcRaf();
+    if (remain >= 1 && remain <= 3 && remain !== lastBeepSec) { lastBeepSec = remain; countdownBeep(); }
   }
 
-  function nextPhase() {
-    if (phase === 'prep') {
-      changeBeep();
-      startExercise();
-      return;
-    }
-    if (phase === 'exercise') {
-      vibrate([200, 80, 200]);
-      changeBeep();
-      if (cfg.restSec > 0) {
-        phase  = 'rest';
-        remain = cfg.restSec;
-        total  = cfg.restSec;
-        updateUI();
-        if (running) { startArcRaf(total); tick(); }
-      } else {
-        advanceSet();
-      }
-    } else {
-      changeBeep();
-      advanceSet();
-    }
+  function startTicking() {
+    if (tickId) clearInterval(tickId);
+    tickId = setInterval(tick, 200);
   }
-
-  function advanceSet() {
-    if (curSet < cfg.sets) {
-      curSet++;
-      vibrate([100, 50, 100, 50, 220]);
-    } else if (curRound < cfg.rounds) {
-      curRound++;
-      curSet = 1;
-      vibrate([300, 100, 300]);
-    } else {
-      finish();
-      return;
-    }
-    phase  = 'exercise';
-    remain = cfg.exSec;
-    total  = cfg.exSec;
-    updateUI();
-    if (running) { startArcRaf(total); tick(); }
-  }
+  function stopTicking() { if (tickId) clearInterval(tickId); tickId = null; }
 
   function finish() {
     running      = false;
     totalRemain  = 0;
+    stopTicking();
     stopArcRaf();
     finishBeep();
     vibrate([500, 200, 500, 200, 500]);
@@ -354,88 +421,131 @@ const Timer = (() => {
     el('it-total-time').textContent     = '00:00';
     setArc(0, 1);
     itSetIcon(false);
+    if (!somethingRunning()) unlockScreen();
   }
 
-  function tick() {
-    if (tickId) clearTimeout(tickId);
-    tickId = setTimeout(() => {
-      if (!running) return;
-      remain--;
-      if (totalRemain > 0) totalRemain--;
-      updateUI();
-      if (remain <= 0) {
-        nextPhase();
-      } else {
-        if (remain <= 3) countdownBeep();
-        tick();
-      }
-    }, 1000);
+  /* ─── Configuración (presets, pasos +/−, total) ──────────── */
+  const FIELDS = ['prep-sec', 'ex-sec', 'rest-sec', 'sets-count', 'rounds-count'];
+  function readCfg() {
+    const n = (id, min) => Math.max(min, parseInt(el(id).value || 0) || 0);
+    return { prepSec: n('prep-sec', 0), exSec: n('ex-sec', 0), restSec: n('rest-sec', 0), sets: n('sets-count', 1), rounds: n('rounds-count', 1) };
+  }
+  function updateTotal() {
+    const c = readCfg();
+    el('cfg-total').textContent = fmtMS(c.prepSec + c.rounds * c.sets * (c.exSec + c.restSec));
+  }
+  function saveCfg() { try { localStorage.setItem(CFG_KEY, JSON.stringify(readCfg())); } catch (e) { /* ok */ } }
+  function loadCfg() {
+    try {
+      const c = JSON.parse(localStorage.getItem(CFG_KEY) || 'null');
+      if (c) { el('prep-sec').value = c.prepSec; el('ex-sec').value = c.exSec; el('rest-sec').value = c.restSec; el('sets-count').value = c.sets; el('rounds-count').value = c.rounds; }
+    } catch (e) { /* ok */ }
+    updateTotal();
   }
 
   function itStart() {
     unlockAudio(); // unlock while still inside the tap gesture
-    const prepSec  = Math.max(0, parseInt(el('prep-sec').value  || 0));
-    const exSec    = parseInt(el('ex-sec').value   || 0);
-    const restSec  = parseInt(el('rest-sec').value || 0);
-    const sets     = Math.max(1, parseInt(el('sets-count').value   || 1));
-    const rounds   = Math.max(1, parseInt(el('rounds-count').value || 1));
+    const c = readCfg();
+    if (c.exSec <= 0) { App.toast('Ingresá el tiempo de ejercicio'); return; }
+    saveCfg();
 
-    if (exSec <= 0) { App.toast('Ingresá el tiempo de ejercicio'); return; }
-
-    cfg      = { prepSec, exSec, restSec, sets, rounds };
+    cfg      = c;
     curSet   = 1;
     curRound = 1;
     running  = true;
 
-    // Calcular tiempo total del circuito
-    totalCircuit = prepSec + rounds * sets * (exSec + restSec);
-    totalRemain  = totalCircuit;
+    const now = Date.now();
+    circuitEnd = now + (c.prepSec + c.rounds * c.sets * (c.exSec + c.restSec)) * 1000;
+    enterPhase(c.prepSec > 0 ? 'prep' : 'exercise', now);
+    remain      = Math.ceil((phaseEnd - now) / 1000);
+    totalRemain = Math.ceil((circuitEnd - now) / 1000);
 
     el('interval-config').classList.add('hidden');
     el('interval-running').classList.remove('hidden');
     itSetIcon(true);
-
-    if (prepSec > 0) {
-      phase  = 'prep';
-      remain = prepSec;
-      total  = prepSec;
-    } else {
-      phase  = 'exercise';
-      remain = exSec;
-      total  = exSec;
-    }
+    lockScreen();
 
     updateUI();
-    startArcRaf(total);
-    tick();
+    startArcRaf();
+    startTicking();
   }
 
   function itToggle() {
     unlockAudio(); // unlock while still inside the tap gesture
     if (running) {
       running = false;
-      if (tickId) clearTimeout(tickId);
+      stopTicking();
       stopArcRaf();
-      setArc(remain, total); // show exact position while paused
+      pausedAt = Date.now();
+      pausedRemainMs = Math.max(0, phaseEnd - pausedAt);
+      remain = Math.ceil(pausedRemainMs / 1000);
+      setArc(pausedRemainMs / 1000, total);   // show exact position while paused
       itSetIcon(false);
     } else {
+      const now = Date.now();
+      phaseEnd   = now + pausedRemainMs;      // retoma justo donde estaba
+      circuitEnd += now - pausedAt;
       running = true;
       itSetIcon(true);
-      // Resume arc from current position (remain seconds left in phase of total)
-      startArcRaf(total, total - remain);
-      tick();
+      lockScreen();
+      startArcRaf();
+      startTicking();
     }
   }
 
   function itReset() {
     running      = false;
     totalRemain  = 0;
-    if (tickId) clearTimeout(tickId);
+    stopTicking();
     stopArcRaf();
     setBodyState(null);
     el('interval-config').classList.remove('hidden');
     el('interval-running').classList.add('hidden');
     itSetIcon(false);
+    if (!somethingRunning()) unlockScreen();
+  }
+
+  /* ─── Ajustes de sonido ──────────────────────────────────── */
+  function openSettings() {
+    const names = { whistle: 'Silbato', beep: 'Beep', bell: 'Campana', none: 'Sin sonido' };
+    App.openModal('Sonido y vibración', `
+      <div class="form-group">
+        <label>Sonido</label>
+        <div class="gen-chips" id="ts-sounds">
+          ${Object.keys(names).map(k => `<button class="gen-chip${prefs.sound === k ? ' on' : ''}" data-s="${k}">${names[k]}</button>`).join('')}
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Volumen</label>
+        <input type="range" id="ts-vol" class="ts-range" min="10" max="100" step="5" value="${Math.round(prefs.vol * 100)}" />
+      </div>
+      <div class="form-group toggle-row">
+        <label>Vibración</label>
+        <label class="toggle-switch">
+          <input type="checkbox" id="ts-vib"${prefs.vibrate ? ' checked' : ''} />
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <div class="form-group">
+        <label>Probar</label>
+        <div class="gen-chips">
+          <button class="gen-chip ghost" data-t="count">Cuenta 3·2·1</button>
+          <button class="gen-chip ghost" data-t="change">Cambio</button>
+          <button class="gen-chip ghost" data-t="finish">Final</button>
+        </div>
+      </div>
+      <div class="modal-footer"><button id="ts-close" class="btn btn-primary">Listo</button></div>`);
+    el('ts-sounds').addEventListener('click', e => {
+      const b = e.target.closest('[data-s]'); if (!b) return;
+      prefs.sound = b.dataset.s; savePrefs();
+      el('ts-sounds').querySelectorAll('.gen-chip').forEach(x => x.classList.toggle('on', x === b));
+      unlockAudio(); playSound('change');
+    });
+    el('ts-vol').addEventListener('input', e => { prefs.vol = (+e.target.value) / 100; savePrefs(); });
+    el('ts-vol').addEventListener('change', () => { unlockAudio(); playSound('count'); });
+    el('ts-vib').addEventListener('change', e => { prefs.vibrate = e.target.checked; savePrefs(); if (prefs.vibrate) vibrate([120]); });
+    document.querySelectorAll('[data-t]').forEach(b => b.addEventListener('click', () => { unlockAudio(); playSound(b.dataset.t); }));
+    el('ts-close').addEventListener('click', App.closeModal);
   }
 
   /* ─── Tabs ───────────────────────────────────────────────── */
@@ -453,6 +563,7 @@ const Timer = (() => {
 
   /* ─── Init ───────────────────────────────────────────────── */
   function init() {
+    loadPrefs();
     initTabs();
     el('sw-toggle').addEventListener('click', swToggle);
     el('sw-lap').addEventListener('click', () => {
@@ -462,7 +573,29 @@ const Timer = (() => {
     el('interval-go').addEventListener('click', itStart);
     el('it-pause').addEventListener('click',   itToggle);
     el('it-reset').addEventListener('click',   itReset);
+    el('timer-settings-btn').addEventListener('click', openSettings);
+
+    // presets, botones +/− y duración total
+    FIELDS.forEach(id => el(id).addEventListener('input', updateTotal));
+    document.querySelectorAll('.step-btn').forEach(b => b.addEventListener('click', () => {
+      const inp = el(b.dataset.for), min = (inp.getAttribute('min') | 0);
+      inp.value = Math.max(min, (parseInt(inp.value) || 0) + (+b.dataset.d));
+      updateTotal();
+    }));
+    document.querySelectorAll('.preset-chip').forEach(b => b.addEventListener('click', () => {
+      const [p, e, r, s, ro] = b.dataset.p.split(',');
+      el('prep-sec').value = p; el('ex-sec').value = e; el('rest-sec').value = r; el('sets-count').value = s; el('rounds-count').value = ro;
+      document.querySelectorAll('.preset-chip').forEach(x => x.classList.toggle('on', x === b));
+      updateTotal();
+    }));
+    loadCfg();
   }
 
-  return { init, syncBodyState };
+  /* Lo comparte con la rutina cronometrada (Runner): mismos sonidos, vibración y pantalla encendida */
+  const shared = {
+    unlockAudio, playSound, vibrate, fmtMS, openSettings,
+    setActive: on => { externalActive = !!on; if (on) lockScreen(); else if (!somethingRunning()) unlockScreen(); },
+  };
+
+  return { init, syncBodyState, shared };
 })();

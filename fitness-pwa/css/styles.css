@@ -1614,3 +1614,164 @@ body.it-prep .nav-item.active { color: #fff; }
 /* ── Generador: interruptor de pasadas de velocidad ─────── */
 .gen-n small { display: block; margin-top: 2px; font-size: .65rem; font-weight: 500; color: var(--text3); }
 .gen-speed { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--bg3); }
+
+/* ============================================================
+   PERFIL DEL ALUMNO · CARPETAS · TABLA DE PESOS
+============================================================ */
+.icon-btn--box {
+  width: 38px; height: 38px; padding: 0; border-radius: 12px;
+  background: var(--bg3); color: var(--text2); border: 1px solid var(--bg4);
+}
+.icon-btn--box:active { background: var(--bg4); color: var(--text); }
+.icon-btn--danger { color: var(--red); background: var(--red-bg); border-color: rgba(255,92,77,.25); }
+.icon-btn--danger:active { background: rgba(255,92,77,.22); color: var(--red); }
+
+/* encabezado compacto: avatar + nombre a la izquierda, acciones a la derecha */
+.user-profile-header--compact {
+  display: flex; align-items: center; gap: 14px;
+  text-align: left; padding: 14px 14px; margin-bottom: 16px;
+}
+.avatar-large--sm { width: 54px; height: 54px; font-size: 1.15rem; margin: 0; flex-shrink: 0; }
+.uph-info { flex: 1; min-width: 0; }
+.user-profile-header--compact #user-detail-name {
+  font-size: 1.05rem; margin: 0 0 3px; line-height: 1.15;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.uph-meta {
+  font-size: .62rem; font-weight: 700; color: var(--text3);
+  text-transform: uppercase; letter-spacing: 1.2px;
+}
+.user-profile-header--compact .user-actions-row { gap: 8px; flex-shrink: 0; }
+
+/* grilla de carpetas */
+#folders-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px;
+}
+.folder-tile {
+  --fc: var(--accent);
+  position: relative; text-align: left; font-family: var(--font);
+  display: flex; flex-direction: column; gap: 6px;
+  min-height: 112px; padding: 14px 14px 13px;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--fc) 13%, var(--bg2)) 0%, var(--bg2) 62%);
+  border: 1px solid color-mix(in srgb, var(--fc) 26%, var(--bg3));
+  border-radius: 18px; color: var(--text); cursor: pointer;
+  transition: transform .12s, border-color .15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.folder-tile:active { transform: scale(.97); border-color: var(--fc); }
+.folder-ico {
+  width: 40px; height: 40px; border-radius: 12px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--fc); background: color-mix(in srgb, var(--fc) 18%, transparent);
+}
+.folder-name {
+  font-size: .9rem; font-weight: 800; line-height: 1.2; margin-top: auto;
+  overflow-wrap: anywhere;
+}
+.folder-sub {
+  font-size: .6rem; font-weight: 700; letter-spacing: 1px;
+  text-transform: uppercase; color: var(--text3);
+}
+
+/* tarjeta ancha: Tabla de pesos */
+.wt-tile {
+  width: 100%; display: flex; align-items: center; gap: 14px;
+  padding: 14px 16px; margin-bottom: 18px; text-align: left; font-family: var(--font);
+  background: var(--accent-bg); border: 1px solid var(--accent-l);
+  border-radius: 18px; color: var(--text); cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.wt-tile:active { background: rgba(40,210,219,.2); }
+.wt-tile-icon {
+  width: 42px; height: 42px; border-radius: 12px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(40,210,219,.16); color: var(--accent);
+}
+.wt-tile-text { flex: 1; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.wt-tile-text b { font-size: .92rem; font-weight: 800; }
+.wt-tile-text small { font-size: .66rem; color: var(--text2); font-weight: 600; }
+.wt-tile-go { color: var(--accent); display: flex; }
+
+/* dentro de una carpeta */
+.folder-head { display: flex; align-items: center; gap: 10px; margin: 2px 0 14px; }
+.folder-head-icon {
+  width: 38px; height: 38px; border-radius: 12px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg2); border: 1px solid var(--bg3);
+}
+.folder-head h3 {
+  flex: 1; font-size: 1.05rem; font-weight: 900; line-height: 1.2; color: var(--text);
+  overflow-wrap: anywhere;
+}
+.folder-actions { display: flex; gap: 8px; margin-bottom: 14px; }
+.folder-actions .btn { flex: 1; margin-top: 0; white-space: nowrap; }
+
+/* ── Ejercicio: peso destacado y nota técnica legible ───── */
+.ex-meta { display: flex; flex-direction: column; align-items: flex-start; gap: 7px; margin-top: 10px; }
+.ex-weight {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 11px; border-radius: 999px;
+  background: var(--accent-bg); color: var(--accent);
+  border: 1px solid var(--accent-l);
+  font-size: .82rem; font-weight: 800; letter-spacing: .1px;
+}
+.ex-tech {
+  font-size: .8rem; line-height: 1.4; color: var(--text2);
+  padding-left: 10px; border-left: 2px solid var(--bg4);
+}
+
+/* ── Pantalla: Tabla de pesos ───────────────────────────── */
+.wt-head { margin: 4px 0 14px; }
+.wt-title { font-size: 1.25rem; font-weight: 900; letter-spacing: -.3px; }
+.wt-sub { font-size: .66rem; font-weight: 700; color: var(--text3); text-transform: uppercase; letter-spacing: 1.2px; margin-top: 3px; }
+.wt-actions { display: flex; gap: 8px; margin-bottom: 12px; }
+.wt-actions .btn { flex: 1; margin-top: 0; }
+.wt-search { margin-bottom: 8px; padding: 11px 14px; font-size: .88rem; }
+.wt-note { font-size: .68rem; color: var(--text3); line-height: 1.45; margin-bottom: 6px; }
+.wt-section { margin-top: 18px; }
+.wt-sec-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  padding: 0 2px 7px; margin-bottom: 2px; border-bottom: 1px solid var(--bg3);
+  font-size: .66rem; font-weight: 800; letter-spacing: 2px; text-transform: uppercase; color: var(--text2);
+}
+.wt-sec-head small { font-size: .62rem; color: var(--text3); letter-spacing: .5px; }
+.wt-row {
+  width: 100%; display: flex; align-items: center; gap: 12px; text-align: left;
+  padding: 12px 2px; background: none; border: 0; border-bottom: 1px solid var(--bg3);
+  color: var(--text); font-family: var(--font); cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.wt-row:active { background: var(--bg2); }
+.wt-info { flex: 1; min-width: 0; }
+.wt-name { font-size: .88rem; font-weight: 700; line-height: 1.25; overflow-wrap: anywhere; }
+.wt-tech { font-size: .72rem; color: var(--text2); line-height: 1.35; margin-top: 3px; }
+.wt-meta { font-size: .6rem; color: var(--text3); font-weight: 600; margin-top: 3px; letter-spacing: .3px; }
+.wt-weight {
+  flex-shrink: 0; max-width: 46%; text-align: right;
+  font-size: 1rem; font-weight: 900; color: var(--accent); letter-spacing: -.3px; line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+.wt-trend { margin-left: 5px; font-size: .7rem; vertical-align: middle; }
+.wt-trend.up   { color: #2ecc71; }
+.wt-trend.down { color: var(--red); }
+.wt-toggle {
+  display: block; width: 100%; margin: 20px 0 8px; padding: 12px;
+  background: transparent; border: 1.5px dashed var(--bg4); border-radius: 12px;
+  color: var(--text2); font: inherit; font-size: .72rem; font-weight: 700; cursor: pointer;
+}
+.wt-hist-now { font-size: 1.9rem; font-weight: 900; color: var(--accent); letter-spacing: -.5px; margin: -4px 0 6px; overflow-wrap: anywhere; }
+.wt-hist-label { font-size: .6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: var(--text3); margin: 6px 0 8px; }
+.wt-hist-row { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--bg3); font-size: .85rem; color: var(--text2); }
+.wt-hist-row b { color: var(--text); font-weight: 800; text-align: right; overflow-wrap: anywhere; }
+.wt-hist-row.now b { color: var(--accent); }
+
+/* tarjetas de rutina más angostas para que el nombre tenga lugar */
+.routine-card { gap: 11px; padding: 13px 12px; }
+.routine-card .routine-icon { width: 34px; height: 34px; }
+.routine-card .routine-arrow { display: none; }
+.routine-card .rout-actions { gap: 0; }
+.routine-card .rout-actions .icon-btn { padding: 7px; }
+.routine-card .routine-name { line-height: 1.25; overflow-wrap: anywhere; }
+.folder-actions { gap: 6px; }
+.folder-actions .btn { padding: 9px 8px; letter-spacing: .3px; font-size: .68rem; min-width: 0; }
+.uph-meta { letter-spacing: .6px; }

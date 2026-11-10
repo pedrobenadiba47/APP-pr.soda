@@ -85,7 +85,8 @@ const Generator = (() => {
   }
   const STOP = new Set(['de', 'del', 'la', 'el', 'los', 'las', 'con', 'en', 'a', 'al', 'y', 'e', 'un', 'una', 'por', 'para', 'o']);
   const SYN  = { manc: 'mancuerna', maq: 'maquina', isquios: 'isquiotibial', isquiotibiales: 'isquiotibial',
-                 cudriceps: 'cuadricep', abodminales: 'abdominal', ismetrico: 'isometrico', estoacadas: 'estocada', estoacada: 'estocada' };
+                 cudriceps: 'cuadricep', abodminales: 'abdominal', ismetrico: 'isometrico', estoacadas: 'estocada', estoacada: 'estocada',
+                 ext: 'extendida', pec: 'pectoral', pecs: 'pectoral', mnc: 'mancuerna' };
   function singular(t) {
     if (t.length <= 3) return t;
     if (/[^aeiou]es$/.test(t)) return t.slice(0, -2);      // abdominales -> abdominal, flexiones -> flexion
@@ -103,9 +104,11 @@ const Generator = (() => {
       if (!t || STOP.has(t)) continue;
       out.push(singular(SYN[t] || t));
     }
-    out.sort();
-    _tokCache.set(name, out);
-    return out;
+    // "Sit ups" y "Abdominales sit ups" son el mismo ejercicio: "abdominal" solo no distingue nada
+    const fin = out.length > 1 ? out.filter(t => t !== 'abdominal') : out;
+    fin.sort();
+    _tokCache.set(name, fin);
+    return fin;
   }
   const canonKey = name => tokenList(name).join(' ');
   function isVariant(a, b) {                 // "plancha" ⊂ "plancha marchando": mismo movimiento
@@ -195,9 +198,71 @@ const Generator = (() => {
     return [...g];
   }
 
-  /* ── Pesos: la nota con el peso más reciente ────────────── */
+  /* ── Pesos: el peso más reciente de cada ejercicio ─────────
+     En cada ejercicio el peso y la nota técnica viven en campos separados (`weight` y `tech`).
+     `note` se sigue guardando con los dos juntos, para que todo lo que ya existe (exportaciones,
+     versiones viejas, PDF) siga entendiéndolo. Los ejercicios viejos, que solo tienen `note`,
+     se separan al leerlos, sin tocar lo guardado.                                              */
   const PLACEHOLDER = /^(\?+|x ?kg|fijarse peso|fijar peso|ver peso|completar|poner peso|\.+|-+)$/i;
   const validNote = n => { n = (n || '').trim(); return !!n && !PLACEHOLDER.test(n); };
+
+  const W_NUM   = /^\d+(?:[.,]\d+)?(?:\s*[\/-]\s*\d+(?:[.,]\d+)?)?\s*(?:kgs?|k|lbs?|libras?|lad(?:rillos?)?)(?![a-záéíóúñ])/i;
+  const W_PRE   = /^(?:con\s+|una?\s+)?(?:manc(?:uernas?)?\.?|mnc\.?|mancuernas?|disco|barra|kettle(?:bell)?)\s+(?:de\s+)?(?=\d)/i;
+  const W_WORD  = /^(?:sin\s+(?:o\s+poco\s+)?peso|poco\s+peso|barra(?:\s+w)?\s*\(?\s*sin\s+peso\s*\)?|peso\s+corporal|liviano|livianos|pesadito|pesado|pesada|medium|light|tobilleras?(?:\s+-?(?:peso\s+)?(?:liviana|livianas|pesada|pesadas|roja|rojas|azul|azules|verde|verdes|negra|media|medio|medium|chica|grande)-?)?|con\s+banda(?:\s+-?\w+-?)?|banda(?:\s+-?(?:light|medium|heavy|liviana|pesada|media|fuerte|roja|azul|verde|negra|amarilla)-?)?|kettle(?:bell)?(?:\s+(?:roja|azul|verde|negra|amarilla))?|disco)(?![a-záéíóúñ])/i;
+  const W_QUAL  = /^\s*(?:p\/?\s*(?:lado|pierna|brazo|mano)|por\s+(?:lado|pierna|brazo|mano)|c\/\s*(?:u|lado|pierna|brazo)|cada\s+(?:lado|una)|manc(?:uernas?)?\.?(?![a-záéíóúñ])|mnc\.?|mancuernas?|barra(?![a-záéíóúñ])|disco(?![a-záéíóúñ])|total(?![a-záéíóúñ])|\(\s*(?:ambos|manc\.?|mancuernas?|barra|p\/lado|por\s+lado|mancuernas\s+en\s+las\s+manos)\s*\)|\(\s*\+\/-\s*\)|\+\/-|\?+)/i;
+  const W_PAREN = /^\s*\(\s*(\d+(?:[.,]\d+)?\s*(?:kgs?|k|lbs?|lad))\s*\)/i;
+  const W_JOIN  = /^\s*(?:—>|–>|-->|->|→|>|\+|\/|,|\by\b)\s*(?=\d|sin\s|tobill|banda|con\s|kettle|liviano|pesad|disco|barra|manc|mnc|una?\s+manc)/i;
+  const W_BARE  = /^\(?\s*\d+(?:[.,]\d+)?\s*\)?(?:\s*(?:\+\s*\d+(?:[.,]\d+)?\s*(?:kg|k)?|p\/\s*\w+|\/\s*\d+(?:[.,]\d+)?))*\s*$/i;
+
+  /* "7,5kg p/lado (después más pesado)" -> { weight: '7,5kg p/lado', tech: 'después más pesado' } */
+  function splitNote(note) {
+    const s = String(note == null ? '' : note).trim();
+    if (!s) return { weight: '', tech: '' };
+    if (PLACEHOLDER.test(s)) return { weight: '', tech: '' };
+    if (W_BARE.test(s)) return { weight: s.replace(/^\(\s*|\s*\)$/g, ''), tech: '' };
+    let m0 = s.match(/^\(\s*(\d+(?:[.,]\d+)?\s*(?:kgs?|k|lbs?|lad))\s*\)$/i);
+    if (m0) return { weight: m0[1], tech: '' };
+    let i = 0, any = false;
+    const rest = () => s.slice(i);
+    for (;;) {
+      i += rest().match(/^\s*/)[0].length;
+      const pre = rest().match(W_PRE);
+      if (pre) { i += pre[0].length; any = true; continue; }
+      const m = rest().match(W_NUM) || rest().match(W_WORD);
+      if (!m) break;
+      i += m[0].length; any = true;
+      if (!W_NUM.test(m[0]) && /^\s*(?:de\s+)?\d/.test(rest())) { i += rest().match(/^\s*(?:de\s+)?/)[0].length; continue; }   // "Kettle 4kg", "Disco 10kg"
+      let q; while ((q = rest().match(W_QUAL)) && q[0].trim()) i += q[0].length;
+      const p = rest().match(W_PAREN); if (p) i += p[0].length;
+      const j = rest().match(W_JOIN); if (j) { i += j[0].length; continue; }
+      break;
+    }
+    if (!any) return { weight: '', tech: s };
+    const weight = s.slice(0, i).trim();
+    const tech = s.slice(i).trim().replace(/^[-–—:;,.+\s]+/, '').trim().replace(/^\((.*)\)$/, '$1').trim();
+    return { weight, tech };
+  }
+  const composeNote = (weight, tech) => [String(weight || '').trim(), String(tech || '').trim()].filter(Boolean).join(' — ');
+  /* peso y nota técnica de un ejercicio, sea nuevo o viejo */
+  function weightOf(it) {
+    if (it && (it.weight !== undefined || it.tech !== undefined)) return { weight: String(it.weight || '').trim(), tech: String(it.tech || '').trim() };
+    return splitNote(it && it.note);
+  }
+  /* guarda un peso nuevo en un ejercicio (y la fecha en que se anotó) */
+  function setWeight(it, weight, at) {
+    const tech = weightOf(it).tech;
+    it.weight = String(weight || '').trim(); it.tech = tech;
+    it.note = composeNote(it.weight, tech);
+    if (it.weight) it.noteAt = at || Date.now(); else delete it.noteAt;
+  }
+  /* guarda peso y nota técnica juntos (editor de ejercicios) */
+  function setWeightAndTech(it, weight, tech) {
+    const prev = weightOf(it);
+    it.weight = String(weight || '').trim(); it.tech = String(tech || '').trim();
+    it.note = composeNote(it.weight, it.tech);
+    if (!it.weight) delete it.noteAt;
+    else if (it.weight !== prev.weight) it.noteAt = Date.now();      // si el peso no cambió, queda la fecha que ya tenía
+  }
 
   function stepWeight(note, dir) {          // sube/baja el primer número de la nota
     const s = String(note || '');
@@ -239,24 +304,22 @@ const Generator = (() => {
     (items || []).forEach(it => {
       if (!isEx(it)) return;
       const b = an.bank.get(canonKey(it.name));
-      const cur = (it.note || '').trim();
+      const cur = weightOf(it).weight;
       if (b && b.weight && b.weight !== cur) {
         changed.push({ name: it.name, from: cur, to: b.weight });
-        it.note = b.weight;
-        if (b.weightAt) it.noteAt = b.weightAt; else delete it.noteAt;
+        setWeight(it, b.weight, b.weightAt);
       } else if (validNote(cur)) {
-        it.noteAt = it.noteAt || srcAt || undefined;
-        if (!it.noteAt) delete it.noteAt;
+        if (!it.noteAt && srcAt) it.noteAt = srcAt;
       }
     });
     return { changed, total: (items || []).filter(isEx).length };
   }
 
-  /* Copias sin cambiar pesos (por ejemplo desde otro alumno): solo se conserva la fecha de cada nota */
+  /* Copias sin cambiar pesos (por ejemplo desde otro alumno): solo se conserva la fecha de cada peso */
   function keepNoteTimes(source, items) {
     const srcAt = routineTime(source);
     (items || []).forEach(it => {
-      if (isEx(it) && validNote(it.note) && !it.noteAt && srcAt) it.noteAt = srcAt;
+      if (isEx(it) && validNote(weightOf(it).weight) && !it.noteAt && srcAt) it.noteAt = srcAt;
     });
   }
 
@@ -294,18 +357,38 @@ const Generator = (() => {
           bank.set(key, b);
         }
         b.count++; b.lastMi = mi; b.name = it.name;        // gana el nombre más reciente
+        const wt = weightOf(it);
         b.occ.push({ mi, at: m.at, noteAt: it.noteAt || m.at, sets: it.sets, reps: it.reps,
-                     dropset: !!it.dropset, note: (it.note || '').trim(), normal: m.exCount >= 4 });
+                     dropset: !!it.dropset, weight: wt.weight, tech: wt.tech, normal: m.exCount >= 4 });
         b.relSum += m.exs.length > 1 ? ei / (m.exs.length - 1) : 0.5; b.relN++;
       });
+    });
+    // pesos cargados a mano en la Tabla de pesos (no están en ninguna rutina, pero cuentan como el último peso)
+    const logBy = new Map();
+    (user.weightLog || []).forEach(l => {
+      if (!l || !l.name) return;
+      const k = canonKey(l.name);
+      if (!logBy.has(k)) logBy.set(k, []);
+      logBy.get(k).push({ mi: 1e9, noteAt: l.at || 0, weight: String(l.weight || '').trim(), tech: String(l.tech || '').trim(), manual: true });
     });
     for (const b of bank.values()) {
       // se prefieren los datos de rutinas "normales" (4+ ejercicios): los días aeróbicos usan series/notas especiales
       const base = b.occ.some(o => o.normal) ? b.occ.filter(o => o.normal) : b.occ;
+      const logs = logBy.get(b.key) || [];
       b.last = base[base.length - 1];
-      const w = base.filter(o => validNote(o.note)).sort((x, y) => (y.noteAt - x.noteAt) || (y.mi - x.mi))[0];
-      b.weight = w ? w.note : '';
+      const w = base.concat(logs).filter(o => validNote(o.weight)).sort((x, y) => (y.noteAt - x.noteAt) || (y.mi - x.mi))[0];
+      b.weight = w ? w.weight : '';
       b.weightAt = w ? w.noteAt : 0;
+      b.weightManual = !!(w && w.manual);
+      // la nota técnica más reciente que se anotó (en una rutina o en la tabla)
+      const tc = base.map((o, i) => ({ tech: o.tech, t: o.noteAt, i })).concat(logs.map((o, i) => ({ tech: o.tech, t: o.noteAt, i: 1e9 + i })))
+        .filter(o => o.tech).sort((x, y) => (y.t - x.t) || (y.i - x.i));
+      const tOcc = base.filter(o => o.tech);
+      b.tech = logs.some(l => l.tech) ? tc[0].tech : (tOcc.length ? tOcc[tOcc.length - 1].tech : '');
+      // historial de pesos distintos, del más viejo al más nuevo (para la tabla de pesos)
+      const seenW = []; b.occ.concat(logs).filter(o => validNote(o.weight)).sort((x, y) => (x.noteAt - y.noteAt) || (x.mi - y.mi))
+        .forEach(o => { const l = seenW[seenW.length - 1]; if (!l || l.weight !== o.weight) seenW.push({ weight: o.weight, at: o.noteAt, manual: !!o.manual }); });
+      b.history = seenW;
       b.relPos = b.relN ? b.relSum / b.relN : 0.5;
     }
 
@@ -732,7 +815,8 @@ const Generator = (() => {
   }
 
   const mkExItem = (e, uid) => {
-    const o = { id: uid(), type: 'exercise', name: e.name, sets: e.last.sets, reps: e.last.reps, note: e.weight || '', dropset: !!e.last.dropset };
+    const o = { id: uid(), type: 'exercise', name: e.name, sets: e.last.sets, reps: e.last.reps,
+                note: composeNote(e.weight, e.tech), weight: e.weight || '', tech: e.tech || '', dropset: !!e.last.dropset };
     if (e.weight && e.weightAt) o.noteAt = e.weightAt;
     return o;
   };
@@ -1041,6 +1125,12 @@ const Generator = (() => {
           sessions: [], drafts: [], ov: null };
     initSessions();
     resuggest(true);
+    // si se abre desde una carpeta, arranca con los músculos que esa carpeta suele trabajar
+    if (ctx.presetGroups && ctx.presetGroups.length && S.mode === 'single') {
+      const s = S.sessions[0];
+      const gs = ctx.presetGroups.filter(g => an.poolSize[g] > 0);
+      if (gs.length) { s.groups = gs; s.touchedG = true; s.n = defaultN(an, gs); }
+    }
     renderSetup(false);
   };
 
@@ -1268,7 +1358,7 @@ const Generator = (() => {
       const g = c.e.groups.find(x => d.groups.includes(x)) || c.e.groups[0];
       return `<div class="gen-row">
         <div class="gen-row-main"><div class="gen-row-name">${esc(it.name)}</div>
-          <div class="gen-row-sub">${esc(it.sets)} × ${esc(it.reps)}${it.dropset ? ' <span class="dropset-badge">+dropset</span>' : ''}${it.note ? ` · <b>${esc(it.note)}</b>` : ''}</div></div>
+          <div class="gen-row-sub">${esc(it.sets)} × ${esc(it.reps)}${it.dropset ? ' <span class="dropset-badge">+dropset</span>' : ''}${weightOf(it).weight ? ` · <b>${esc(weightOf(it).weight)}</b>` : ''}${weightOf(it).tech ? `<br><i>${esc(weightOf(it).tech)}</i>` : ''}</div></div>
         <button class="gen-badge" data-gen="badge" data-key="${esc(c.e.key)}" data-name="${esc(c.e.name)}" title="Cambiar músculo">${esc(GL[g] || '?')}</button>
         <button class="gen-swap" data-gen="swap" data-d="${i}" data-e="${ei}" title="Cambiar por otro ejercicio">↻</button>
         <button class="gen-swap gen-del" data-gen="del" data-d="${i}" data-e="${ei}" title="Sacar este ejercicio">✕</button>
@@ -1330,6 +1420,7 @@ const Generator = (() => {
     const saved = S.drafts.map(d => {
       const r = { id: S.ctx.uid(), name: d.name, description: d.description, color: d.color, exercises: [], items: d.items,
                   generated: true, groups: d.groups.slice(), forDate: d.forDate, genAt: Date.now() };
+      if (S.ctx.assignFolder) { try { S.ctx.assignFolder(r); } catch (e) { /* sin carpeta: queda suelta, no se pierde */ } }
       u.routines.push(r);
       return r;
     });
@@ -1381,10 +1472,10 @@ const Generator = (() => {
       <div class="gen-hint" style="margin-top:-6px">Cambiá el peso de lo que subió o bajó. Queda como el último peso de cada ejercicio para las próximas rutinas.</div>
       ${rows.map(r => `
         <div class="gw-row" data-idx="${r.idx}">
-          <div class="gw-info"><div class="gw-name">${esc(r.it.name)}</div><div class="gw-sub">${esc(r.it.sets)} × ${esc(r.it.reps)}</div></div>
+          <div class="gw-info"><div class="gw-name">${esc(r.it.name)}</div><div class="gw-sub">${esc(r.it.sets)} × ${esc(r.it.reps)}${weightOf(r.it).tech ? ' · ' + esc(weightOf(r.it).tech) : ''}</div></div>
           <div class="gw-ctl">
             <button class="gw-btn" data-gw="dec" aria-label="Bajar">−</button>
-            <input class="gw-input" data-orig="${esc((r.it.note || '').trim())}" value="${esc(r.it.note || '')}" placeholder="Peso" />
+            <input class="gw-input" data-orig="${esc(weightOf(r.it).weight)}" value="${esc(weightOf(r.it).weight)}" placeholder="Peso" />
             <button class="gw-btn" data-gw="inc" aria-label="Subir">+</button>
           </div>
         </div>`).join('')}
@@ -1411,9 +1502,7 @@ const Generator = (() => {
           const inp = row.querySelector('.gw-input');
           const v = inp.value.trim();
           if (v === inp.dataset.orig) return;
-          const it = ctx.items[+row.dataset.idx];
-          it.note = v;
-          if (v) it.noteAt = Date.now(); else delete it.noteAt;
+          setWeight(ctx.items[+row.dataset.idx], v, Date.now());
           n++;
         });
         if (n) ctx.save();
@@ -1431,7 +1520,9 @@ const Generator = (() => {
     stepWeight,
     refreshWeights,
     keepNoteTimes,
-    _core: { norm, canonKey, tokenList, classify, familyOf, nameGroups, analyze, suggest, planWeek, generate, generateOnce,
+    splitNote, composeNote, weightOf, setWeight, setWeightAndTech, validNote,
+    analyze: (user) => analyze(user, loadOverrides()),
+    _core: { splitNote, weightOf, composeNote, setWeight, routineTime, norm, canonKey, tokenList, classify, familyOf, nameGroups, analyze, suggest, planWeek, generate, generateOnce,
              swapExercise, removeExercise, addExercise, estimate, estimateDraft, exSeconds, repInfo, calibratePace,
              lastClassInfo, defaultN, buildName, mulberry32, isVariant, stepWeight, validNote,
              GROUPS, GL, GU, PRESETS, dkey, pdate, diffDays },

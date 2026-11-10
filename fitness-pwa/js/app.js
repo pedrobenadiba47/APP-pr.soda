@@ -65,7 +65,25 @@ const App = (() => {
   let toastTimer;
   function toast(msg, dur = 2200) {
     const el = document.getElementById('toast');
+    el.classList.remove('toast--action');
     el.textContent = msg;
+    el.classList.remove('hidden');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.add('hidden'), dur);
+  }
+
+  /* Aviso con botón "Deshacer": por unos segundos se puede volver atrás lo que se borró */
+  function undoToast(msg, onUndo, dur = 6000) {
+    const el = document.getElementById('toast');
+    el.innerHTML = '';
+    const span = document.createElement('span'); span.textContent = msg;
+    const btn = document.createElement('button'); btn.className = 'toast-undo'; btn.textContent = 'Deshacer';
+    btn.addEventListener('click', () => {
+      clearTimeout(toastTimer); el.classList.add('hidden');
+      try { onUndo(); } catch (e) { /* nada */ }
+    });
+    el.append(span, btn);
+    el.classList.add('toast--action');
     el.classList.remove('hidden');
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => el.classList.add('hidden'), dur);
@@ -107,7 +125,7 @@ const App = (() => {
     navigate('timer');
   }
 
-  return { init, navigate, openModal, closeModal, toast, setTitle };
+  return { init, navigate, openModal, closeModal, toast, undoToast, setTitle };
 })();
 
 document.addEventListener('DOMContentLoaded', App.init);

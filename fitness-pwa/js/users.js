@@ -8,6 +8,7 @@ const Users = (() => {
   let users   = [];
   let curUser = null;
   let curRout = null;
+  let curFolder = null;          // null = raíz del alumno · id de carpeta · '__all'
 
   function load() { users = JSON.parse(localStorage.getItem(KEY) || '[]'); }
   function save() { localStorage.setItem(KEY, JSON.stringify(users)); }
@@ -54,6 +55,8 @@ const Users = (() => {
         name: u.name,
         isTrainer: !!u.isTrainer,
         color: u.color,
+        folders: (u.folders || []).map(f => Object.assign({}, f)),
+        weightLog: (u.weightLog || []).map(w => Object.assign({}, w)),
         routines: stripRoutineItems(u.routines)
       }))
     };
@@ -113,12 +116,30 @@ const Users = (() => {
           }
 
           target.routines = target.routines || [];
+          // carpetas del archivo: se usan las que ya existen con el mismo nombre, y si no, se crean
+          const fmap = {};
+          (iu.folders || []).forEach(f => {
+            if (!f || !f.id) return;
+            if (!target.folders) target.folders = [];
+            let tf = target.folders.find(x => x.name.trim().toLowerCase() === String(f.name || '').trim().toLowerCase())
+                  || (f.tag ? target.folders.find(x => x.tag === f.tag) : null);
+            if (!tf) { tf = { id: 'f' + uid(), name: f.name || 'Carpeta', tag: f.tag || '', color: f.color }; target.folders.push(tf); }
+            fmap[f.id] = tf.id;
+          });
           const existingIds = new Set(target.routines.map(r => r.id));
           for (const r of importedRoutines) {
             const rout = existingIds.has(r.id) ? { ...r, id: uid() } : r;
+            if (fmap[rout.folder]) rout.folder = fmap[rout.folder]; else delete rout.folder;
             target.routines.push(rout);
             existingIds.add(rout.id);
             routinesAdded++;
+          }
+          try { if (!target.folders || !target.folders.length) Organizer.ensure(target); Organizer.fillMissing(target); } catch (e) { /* queda en "Todas" */ }
+          // pesos cargados desde la tabla de pesos
+          if (Array.isArray(iu.weightLog) && iu.weightLog.length) {
+            target.weightLog = target.weightLog || [];
+            const seen = new Set(target.weightLog.map(w => w.key + '|' + w.at));
+            iu.weightLog.forEach(w => { if (w && w.key && !seen.has(w.key + '|' + w.at)) { target.weightLog.push(Object.assign({}, w)); seen.add(w.key + '|' + w.at); } });
           }
         }
 
@@ -130,6 +151,18 @@ const Users = (() => {
       }
     };
     reader.readAsText(file);
+  }
+
+  /* Copia de seguridad automática, una sola vez, antes de agregar las carpetas por primera vez.
+     Queda guardada en el mismo celular (clave `fitpro_users_backup_pre_carpetas`).               */
+  function backupBeforeFolders() {
+    try {
+      const BK = 'fitpro_users_backup_pre_carpetas';
+      if (localStorage.getItem(BK)) return;
+      if (users.some(u => (u.routines || []).length) && !users.some(u => u.folders)) {
+        localStorage.setItem(BK, JSON.stringify({ savedAt: new Date().toISOString(), users }));
+      }
+    } catch (e) { /* sin espacio: no se frena nada */ }
   }
 
   function initials(name) {
@@ -191,7 +224,7 @@ const Users = (() => {
 
   /* â”€â”€ View control â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
   function showView(id) {
-    ['users-list-view','user-detail-view','routine-detail-view']
+    ['users-list-view','user-detail-view','routine-detail-view','weights-view']
       .forEach(v => document.getElementById(v).classList.toggle('hidden', v !== id));
     // FAB only visible on users list view
     document.getElementById('add-user-btn').classList.toggle('hidden', id !== 'users-list-view');
@@ -206,6 +239,8 @@ const Users = (() => {
   /* â”€â”€ Users list â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
   function renderUsers() {
     const grid = document.getElementById('users-grid');
+    const gsv = (document.getElementById('global-search') || {}).value || '';
+    if (gsv.trim().length >= 2) { searchBanks = null; setTimeout(() => doSearch(gsv), 0); }   // la búsqueda se rehace con los datos nuevos
     if (!users.length) {
       grid.innerHTML = `<div class="empty-state">
         <div class="empty-icon">${ic.person}</div>
@@ -318,27 +353,170 @@ const Users = (() => {
   /* â”€â”€ User detail â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
   const DAY_NAMES = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
 
+  const ALL_FOLDER = '__all';                  // "Todas las rutinas": una lista con todo, la más nueva primero
+
   function openUser(id) {
     curUser = users.find(u => u.id === id);
     if (!curUser) return;
+    curFolder = null;
+    // las carpetas se arman solas la primera vez; si falta alguna rutina por ubicar, se ubica
+    try {
+      const a = Organizer.ensure(curUser), b = Organizer.fillMissing(curUser);
+      if (a || b) save();
+    } catch (e) { /* si algo falla, las rutinas se ven igual en "Todas" */ }
     const av = document.getElementById('user-avatar-large');
     av.textContent = initials(curUser.name);
     document.getElementById('user-detail-name').textContent = curUser.name;
-    renderRoutines();
-    if (!curUser.isTrainer) renderScheduleDefaults();
+    renderUserDetail();
     showView('user-detail-view');
-    App.setTitle(curUser.name);
+    document.getElementById('app-content').scrollTop = 0;
+  }
+
+  const folderOf  = id => (curUser.folders || []).find(f => f.id === id);
+  const rtime     = r => Generator._core.routineTime(r);
+  const dmy       = ms => { if (!ms) return ''; const d = new Date(ms); return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getFullYear()).slice(2)}`; };
+
+  /* Dibuja la pantalla del alumno: la raíz (carpetas) o el interior de una carpeta */
+  function renderUserDetail() {
+    const rs = curUser.routines || [];
+    const inFolder = curFolder !== null;
+    document.getElementById('user-detail-meta').textContent =
+      curUser.isTrainer ? 'Entrenador personal' : `${rs.length} rutina${rs.length === 1 ? '' : 's'} · ${(curUser.folders || []).length} carpetas`;
+    document.getElementById('folders-section').classList.toggle('hidden', inFolder);
+    document.getElementById('folder-section').classList.toggle('hidden', !inFolder);
+    const back = document.getElementById('back-to-users');
+    back.lastChild.textContent = inFolder ? ' Carpetas' : ' Volver';
+    document.querySelector('.user-profile-header').classList.toggle('hidden', inFolder);
+    if (inFolder) {
+      const isAll = curFolder === ALL_FOLDER, f = isAll ? null : folderOf(curFolder);
+      document.getElementById('folder-title').textContent = isAll ? 'Todas las rutinas' : (f ? f.name : 'Carpeta');
+      document.getElementById('folder-head-icon').innerHTML = Organizer.iconSVG(isAll ? 'otras' : (f && f.tag) || 'otras', 20);
+      document.getElementById('folder-head-icon').style.color = isAll ? 'var(--text2)' : folderColor(f);
+      document.getElementById('edit-folder-btn').classList.toggle('hidden', isAll);
+      document.getElementById('add-routine-btn').classList.toggle('hidden', isAll);
+      document.getElementById('generate-routine-btn').classList.toggle('hidden', isAll || curUser.isTrainer);
+      renderRoutines();
+      App.setTitle(isAll ? 'Todas' : (f ? f.name : curUser.name));
+    } else {
+      renderFolders();
+      App.setTitle(curUser.name);
+    }
+    document.getElementById('generate-routine-root-btn').classList.toggle('hidden', !!curUser.isTrainer);
+    if (!curUser.isTrainer && !inFolder) renderScheduleDefaults();
+    else { const s = document.getElementById('schedule-section'); if (s) s.remove(); }
+  }
+
+  const folderColor = f => (f && f.color) || ((f && Organizer.TAGS[f.tag] && Organizer.TAGS[f.tag].color) || '#607d8b');
+
+  function renderFolders() {
+    const grid = document.getElementById('folders-grid');
+    const rs = curUser.routines || [];
+    const fs = curUser.folders || [];
+    if (!rs.length && !fs.length) {
+      grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">
+        <div class="empty-icon">${ic.clipboard}</div>
+        <p>Sin rutinas todavía.<br><strong>Generá una o creá una carpeta</strong></p></div>`;
+    } else {
+      const count = id => rs.filter(r => r.folder === id).length;
+      const last  = id => { const t = Math.max(0, ...rs.filter(r => r.folder === id).map(rtime)); return t ? dmy(t) : ''; };
+      const tile = (id, name, tag, color, n, sub) => `
+        <button class="folder-tile" data-folder="${id}" style="--fc:${color}">
+          <span class="folder-ico">${Organizer.iconSVG(tag, 22)}</span>
+          <span class="folder-name">${name}</span>
+          <span class="folder-sub">${n} rutina${n === 1 ? '' : 's'}${sub ? ' · ' + sub : ''}</span>
+        </button>`;
+      grid.innerHTML = fs.map(f => tile(f.id, f.name, f.tag || 'otras', folderColor(f), count(f.id), last(f.id))).join('')
+        + (rs.length > 1 ? tile(ALL_FOLDER, 'Todas', 'otras', '#9e9e9e', rs.length, '') : '');
+      grid.querySelectorAll('.folder-tile').forEach(b => b.addEventListener('click', () => {
+        curFolder = b.dataset.folder; renderUserDetail(); document.getElementById('app-content').scrollTop = 0;
+      }));
+    }
+    const wt = (() => { try { return WeightsTable.build(curUser).total; } catch (e) { return 0; } })();
+    document.getElementById('weights-tile-sub').textContent = wt ? `${wt} ejercicios con su último peso` : 'Los últimos pesos de cada ejercicio';
+  }
+
+  /* ── Pesos de una rutina, tabla de pesos y cronometrar ───── */
+  function openWeightsFor(routine) {
+    Generator.openWeights({ items: getItems(routine), save, onSaved: () => { if (curRout === routine) renderItems(); } });
+  }
+  function runRoutine(routine) {
+    Runner.open(routine, { onWeights: () => openWeightsFor(routine) });
+  }
+  function openWeightsTable(user, query, focus) {
+    const fromSearch = curUser !== user;
+    if (fromSearch) { curUser = user; curFolder = null; }
+    showView('weights-view');
+    App.setTitle('Pesos');
+    document.getElementById('app-content').scrollTop = 0;
+    WeightsTable.open(user, () => {
+      if (fromSearch) { curUser = null; showView('users-list-view'); renderUsers(); App.setTitle('Usuarios'); }
+      else { showView('user-detail-view'); renderUserDetail(); }
+    }, { save, query: query || '', focus: focus || '' });
+  }
+
+  /* Abre una rutina de cualquier alumno (desde el buscador), dentro de su carpeta */
+  function openRoutineFor(userId, routineId) {
+    const u = users.find(x => x.id === userId);
+    const r = u && (u.routines || []).find(x => x.id === routineId);
+    if (!r) return;
+    openUser(userId);
+    curFolder = r.folder && folderOf(r.folder) ? r.folder : ALL_FOLDER;
+    renderUserDetail();
+    openRoutine(routineId);
+  }
+
+  /* ── Buscador general: rutinas y ejercicios de todos los alumnos ── */
+  let searchTimer = null, searchBanks = null;      // bancos de ejercicios, se arman una vez por búsqueda
+  function renderSearch(q) {
+    clearTimeout(searchTimer);
+    if (String(q || '').trim().length < 2) searchBanks = null;
+    searchTimer = setTimeout(() => doSearch(q), 160);
+    document.getElementById('global-search-clear').classList.toggle('hidden', !String(q || '').trim());
+  }
+  function doSearch(q) {
+    q = String(q || '').trim();
+    const box = document.getElementById('search-results'), grid = document.getElementById('users-grid');
+    if (q.length < 2) { box.classList.add('hidden'); box.innerHTML = ''; grid.classList.remove('hidden'); return; }
+    const N = Generator._core.norm, nq = N(q);
+    const routs = [], exs = [];
+    if (!searchBanks) searchBanks = new Map();
+    users.forEach(u => {
+      (u.routines || []).forEach(r => { if (N(r.name).includes(nq)) routs.push({ u, r }); });
+      if (!searchBanks.has(u)) { let bk = []; try { bk = [...Generator.analyze(u).bank.values()]; } catch (e) { /* sigue */ } searchBanks.set(u, bk); }
+      searchBanks.get(u).forEach(b => { if (N(b.name).includes(nq)) exs.push({ u, b }); });
+    });
+    routs.sort((a, b) => rtime(b.r) - rtime(a.r));
+    exs.sort((a, b) => b.b.count - a.b.count);
+    const fname = (u, id) => { const f = (u.folders || []).find(x => x.id === id); return f ? f.name : ''; };
+    box.innerHTML = `
+      ${exs.length ? `<div class="sr-label">Ejercicios <small>${exs.length}</small></div>
+        ${exs.slice(0, 25).map(({ u, b }, k) => `
+          <button class="sr-row" data-ex="${k}">
+            <span class="sr-dot" style="background:${u.color || 'var(--bg4)'}"></span>
+            <span class="sr-main"><b>${escH(b.name)}</b><small>${escH(u.name)} · en ${b.count} rutina${b.count === 1 ? '' : 's'}</small></span>
+            ${b.weight ? `<span class="sr-weight">${escH(b.weight)}</span>` : ''}
+          </button>`).join('')}` : ''}
+      ${routs.length ? `<div class="sr-label">Rutinas <small>${routs.length}</small></div>
+        ${routs.slice(0, 30).map(({ u, r }, k) => `
+          <button class="sr-row" data-rt="${k}">
+            <span class="sr-dot" style="background:${r.color || u.color || 'var(--bg4)'}"></span>
+            <span class="sr-main"><b>${escH(r.name)}</b><small>${[u.name, fname(u, r.folder), dmy(rtime(r))].filter(Boolean).map(escH).join(' · ')}</small></span>
+          </button>`).join('')}` : ''}
+      ${!exs.length && !routs.length ? `<div class="empty-state" style="padding:36px 16px"><p>Nada con “${escH(q)}”</p></div>` : ''}`;
+    box.classList.remove('hidden'); grid.classList.add('hidden');
+    box.querySelectorAll('[data-rt]').forEach(b => b.addEventListener('click', () => { const x = routs[+b.dataset.rt]; openRoutineFor(x.u.id, x.r.id); }));
+    box.querySelectorAll('[data-ex]').forEach(b => b.addEventListener('click', () => { const x = exs[+b.dataset.ex]; openWeightsTable(x.u, x.b.name, x.b.key); }));
   }
 
   /* â”€â”€ Horarios habituales â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
   function renderScheduleDefaults() {
-    // Inject schedule section after routines-list if not present
+    // Inject schedule section after the folders block if not present
     let section = document.getElementById('schedule-section');
     if (!section) {
       section = document.createElement('div');
       section.id = 'schedule-section';
       section.className = 'schedule-section';
-      document.getElementById('routines-list').insertAdjacentElement('afterend', section);
+      document.getElementById('folders-section').insertAdjacentElement('afterend', section);
     }
 
     const defaults = curUser.classDefaults || [];
@@ -469,23 +647,28 @@ const Users = (() => {
   /* â”€â”€ Routines â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
   function renderRoutines() {
     const list = document.getElementById('routines-list');
-    const rs   = curUser.routines || [];
+    const all  = curUser.routines || [];
+    const isAll = curFolder === ALL_FOLDER;
+    // la más nueva arriba (las que no tienen fecha, al final)
+    const rs = all.filter(r => isAll || r.folder === curFolder).sort((a, b) => rtime(b) - rtime(a));
     if (!rs.length) {
       list.innerHTML = `<div class="empty-state">
         <div class="empty-icon">${ic.clipboard}</div>
-        <p>Sin rutinas.<br><strong>Tocá + Nueva para crear</strong></p>
+        <p>${isAll ? 'Sin rutinas.' : 'Esta carpeta está vacía.<br><strong>Tocá Nueva o Generar</strong>'}</p>
       </div>`;
       return;
     }
     list.innerHTML = rs.map(r => {
       const col = r.color || 'var(--bg3)';
       const exCount = (r.items || r.exercises || []).filter(i => !i.type || i.type === 'exercise').length;
+      const fl = isAll && folderOf(r.folder) ? folderOf(r.folder).name : '';
+      const when = dmy(rtime(r));
       return `
       <div class="routine-card" data-id="${r.id}" style="border-left-color:${col}">
         <div class="routine-icon" style="background:${col}20;color:${col}">${ic.dumbbell}</div>
         <div class="routine-info">
           <div class="routine-name">${r.name}</div>
-          <div class="routine-count">${r.description ? r.description + ' · ' : ''}${exCount} ejercicio${exCount !== 1 ? 's' : ''}</div>
+          <div class="routine-count">${[r.description, `${exCount} ejercicio${exCount !== 1 ? 's' : ''}`, when, fl].filter(Boolean).join(' · ')}</div>
         </div>
         <div class="rout-actions">
           <button class="icon-btn rout-copy" data-id="${r.id}" title="Duplicar">${ic.copy}</button>
@@ -511,8 +694,17 @@ const Users = (() => {
     list.querySelectorAll('.rout-del').forEach(b =>
       b.addEventListener('click', e => {
         e.stopPropagation();
-        curUser.routines = curUser.routines.filter(r => r.id !== b.dataset.id);
-        save(); renderRoutines(); App.toast('Rutina eliminada');
+        const pos = curUser.routines.findIndex(x => x.id === b.dataset.id);
+        if (pos < 0) return;
+        // se borra al toque, pero por unos segundos se puede deshacer
+        const [r] = curUser.routines.splice(pos, 1);
+        const owner = curUser;
+        save(); renderUserDetail();
+        App.undoToast('Rutina eliminada', () => {
+          owner.routines.splice(Math.min(pos, owner.routines.length), 0, r);
+          save(); if (curUser === owner) renderUserDetail();
+          App.toast('Rutina recuperada');
+        });
       })
     );
   }
@@ -553,8 +745,8 @@ const Users = (() => {
       else if (r.total)     msg += ' · pesos ya al día';
     } catch (e) { /* si falla el cálculo, queda la copia tal cual */ }
     if (!curUser.routines) curUser.routines = [];
-    curUser.routines.push(copy);
-    save(); renderRoutines();
+    curUser.routines.push(copy);                 // la copia queda en la misma carpeta que la original (copia el campo `folder`)
+    save(); renderUserDetail();
     App.toast(msg, 3200);
   }
 
@@ -615,14 +807,87 @@ const Users = (() => {
         try { Generator.keepNoteTimes(srcRout, copy.items || copy.exercises); } catch (e) { /* no es crítico */ }
 
         if (!curUser.routines) curUser.routines = [];
+        copy.folder = defaultFolderFor(copy);          // va a la carpeta donde estás, o a la que le corresponde
         curUser.routines.push(copy);
-        save(); App.closeModal(); renderRoutines();
+        save(); App.closeModal(); renderUserDetail();
         App.toast(`"${srcRout.name}" copiada de ${srcUser.name}`);
       });
     });
   }
 
+  /* â”€â”€ Carpetas: crear, renombrar, cambiar color, eliminar â”€â”€ */
+  function openFolderModal(f = null) {
+    const attr = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+    let color = f ? folderColor(f) : ROUT_PALETTE[(curUser.folders || []).length % ROUT_PALETTE.length];
+    const n = f ? (curUser.routines || []).filter(r => r.folder === f.id).length : 0;
+    App.openModal(f ? 'Editar carpeta' : 'Nueva carpeta', `
+      <div class="form-group">
+        <label>Nombre</label>
+        <input id="fo-name" class="form-input" placeholder="Ej: Localizado glúteos" value="${attr(f ? f.name : '')}" />
+      </div>
+      <div class="form-group color-picker-wrap">
+        <label>Color</label>
+        <div class="color-options" id="fo-color-opts">
+          ${ROUT_PALETTE.map(c => `<div class="color-opt${c === color ? ' selected' : ''}" data-color="${c}" style="background:${c}"></div>`).join('')}
+        </div>
+      </div>
+      ${f ? `<button id="fo-del" class="btn btn-danger btn-full" style="margin-top:4px">Eliminar carpeta</button>` : ''}
+      <div class="modal-footer">
+        <button id="fo-cancel" class="btn btn-secondary">Cancelar</button>
+        <button id="fo-save"   class="btn btn-primary">${f ? 'Guardar' : 'Crear'}</button>
+      </div>`);
+    document.getElementById('fo-color-opts').addEventListener('click', e => {
+      const opt = e.target.closest('.color-opt'); if (!opt) return;
+      document.querySelectorAll('#fo-color-opts .color-opt').forEach(o => o.classList.remove('selected'));
+      opt.classList.add('selected'); color = opt.dataset.color;
+    });
+    document.getElementById('fo-cancel').addEventListener('click', App.closeModal);
+    document.getElementById('fo-save').addEventListener('click', () => {
+      const name = document.getElementById('fo-name').value.trim();
+      if (!name) { App.toast('Ingresá un nombre'); return; }
+      if (f) { f.name = name; f.color = color; }
+      else {
+        if (!curUser.folders) curUser.folders = [];
+        curUser.folders.push({ id: 'f' + uid(), name, tag: '', color });
+      }
+      save(); App.closeModal(); renderUserDetail();
+      App.toast(f ? 'Carpeta actualizada' : 'Carpeta creada');
+    });
+    const del = document.getElementById('fo-del');
+    if (del) del.addEventListener('click', () => {
+      App.openModal('Eliminar carpeta', `
+        <p style="color:var(--text2);margin-bottom:20px;line-height:1.6;font-size:.9rem">
+          ¿Eliminar la carpeta <strong>${attr(f.name)}</strong>?${n ? ` Sus ${n} rutina${n === 1 ? '' : 's'} <strong>no se borran</strong>: pasan a “Otras rutinas”.` : ''}
+        </p>
+        <div class="modal-footer">
+          <button id="fd-no"  class="btn btn-secondary">Cancelar</button>
+          <button id="fd-yes" class="btn btn-danger">Eliminar</button>
+        </div>`);
+      document.getElementById('fd-no').addEventListener('click', App.closeModal);
+      document.getElementById('fd-yes').addEventListener('click', () => {
+        const rest = (curUser.routines || []).filter(r => r.folder === f.id);
+        curUser.folders = curUser.folders.filter(x => x.id !== f.id);
+        if (rest.length) {
+          let o = curUser.folders.find(x => x.tag === 'otras');
+          if (!o) { o = Organizer.makeFolder('otras'); curUser.folders.push(o); }
+          rest.forEach(r => { r.folder = o.id; });
+        }
+        curFolder = null;
+        save(); App.closeModal(); renderUserDetail();
+        App.toast('Carpeta eliminada');
+      });
+    });
+  }
+
+  /* Carpeta para una rutina nueva: la carpeta donde estás parado; si no, la que le corresponde por el nombre */
+  function defaultFolderFor(routine) {
+    if (curFolder && curFolder !== ALL_FOLDER && folderOf(curFolder)) return curFolder;
+    return Organizer.folderFor(curUser, routine);
+  }
+
   function openRoutineModal(ex = null) {
+    const fs = curUser.folders || [];
+    const curF = ex ? ex.folder : (curFolder && curFolder !== ALL_FOLDER ? curFolder : '');
     App.openModal(ex ? 'Editar rutina' : 'Nueva rutina', `
       <div class="form-group">
         <label>Nombre de la rutina</label>
@@ -631,6 +896,13 @@ const Users = (() => {
       <div class="form-group">
         <label>Descripción <span style="font-size:.65em;color:var(--text3);font-weight:400">(opcional)</span></label>
         <input id="r-desc" class="form-input" placeholder="Ej: Fuerza + hipertrofia" value="${ex?.description||''}" />
+      </div>
+      <div class="form-group">
+        <label>Carpeta</label>
+        <select id="r-folder" class="form-select">
+          <option value=""${curF ? '' : ' selected'}>Automática (según el nombre)</option>
+          ${fs.map(f => `<option value="${f.id}"${f.id === curF ? ' selected' : ''}>${f.name}</option>`).join('')}
+        </select>
       </div>
       ${routColorPickerHTML(ex?.color)}
       <div class="modal-footer">
@@ -653,12 +925,17 @@ const Users = (() => {
       const name = document.getElementById('r-name').value.trim();
       const desc = document.getElementById('r-desc').value.trim();
       if (!name) { App.toast('Ingresá un nombre'); return; }
-      if (ex) { ex.name = name; ex.description = desc; ex.color = selectedColor; }
-      else {
+      const chosen = document.getElementById('r-folder').value;
+      if (ex) {
+        ex.name = name; ex.description = desc; ex.color = selectedColor;
+        ex.folder = chosen || Organizer.folderFor(curUser, ex);
+      } else {
         if (!curUser.routines) curUser.routines = [];
-        curUser.routines.push({ id: uid(), name, description: desc, color: selectedColor, exercises: [] });
+        const r = { id: uid(), name, description: desc, color: selectedColor, exercises: [] };
+        r.folder = chosen || defaultFolderFor(r);
+        curUser.routines.push(r);
       }
-      save(); App.closeModal(); renderRoutines();
+      save(); App.closeModal(); renderUserDetail();
       App.toast(ex ? 'Rutina actualizada' : 'Rutina creada');
     });
   }
@@ -729,6 +1006,17 @@ const Users = (() => {
     </svg>
   </div>`;
 
+  /* Peso (destacado) y nota técnica (aparte, legible) de un ejercicio */
+  const escH = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  function exMetaHTML(item) {
+    const w = Generator.weightOf(item);
+    if (!w.weight && !w.tech) return '';
+    return `<div class="ex-meta">
+      ${w.weight ? `<span class="ex-weight"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 6.5h11l2 13h-15z"/><path d="M9 6.5a3 3 0 016 0"/></svg>${escH(w.weight)}</span>` : ''}
+      ${w.tech ? `<span class="ex-tech">${escH(w.tech)}</span>` : ''}
+    </div>`;
+  }
+
   /* â”€â”€ Exercises / breaks render â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
   function renderItems() {
     const list  = document.getElementById('exercises-list');
@@ -750,7 +1038,7 @@ const Users = (() => {
               <div class="exercise-name">${item.name}</div>
               <div class="exercise-sets-label">Series &times; Reps</div>
               <div class="exercise-sets-reps">${item.sets} &times; ${item.reps}${item.dropset ? ' <span class="dropset-badge">+dropset</span>' : ''}</div>
-              ${item.note ? `<div class="exercise-note">${item.note}</div>` : ''}
+              ${exMetaHTML(item)}
             </div>
             <div class="exercise-actions">
               <button class="icon-btn item-copy" data-i="${i}" title="Duplicar">${ic.copy}</button>
@@ -805,8 +1093,14 @@ const Users = (() => {
     );
     list.querySelectorAll('.item-del').forEach(b =>
       b.addEventListener('click', () => {
-        getItems(curRout).splice(parseInt(b.dataset.i), 1);
-        save(); renderItems(); App.toast('Eliminado');
+        const items = getItems(curRout), pos = parseInt(b.dataset.i), rout = curRout;
+        const [gone] = items.splice(pos, 1);
+        save(); renderItems();
+        App.undoToast(gone && (!gone.type || gone.type === 'exercise') ? 'Ejercicio eliminado' : 'Eliminado', () => {
+          items.splice(Math.min(pos, items.length), 0, gone);
+          save(); if (curRout === rout) renderItems();
+          App.toast('Recuperado');
+        });
       })
     );
     list.querySelectorAll('.item-edit').forEach(b =>
@@ -1109,7 +1403,7 @@ const Users = (() => {
           getItems(curRout).push({
             id: uid(), type: 'exercise',
             name: ex.name, sets: ex.sets, reps: ex.reps,
-            note: ex.note || '', dropset: false,
+            note: ex.note || '', weight: '', tech: ex.note || '', dropset: false,
           });
           save();
           added++;
@@ -1151,6 +1445,7 @@ const Users = (() => {
     function buildItemsHTML(forScreen) {
       return items.map((item, idx) => {
         if (!item.type || item.type === 'exercise') {
+          const wt = Generator.weightOf(item);
           const dropsetBadge = item.dropset
             ? (forScreen
                 ? ' <span style="font-size:8px;font-weight:800;border:1.5px solid currentColor;border-radius:3px;padding:1px 4px;margin-left:5px;vertical-align:middle;text-transform:uppercase">+dropset</span>'
@@ -1161,8 +1456,11 @@ const Users = (() => {
               <div ${forScreen ? 'class="pdf-info"' : ''}>
                 <div style="${forScreen ? '' : 'font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:2px;color:#888;margin-bottom:4px'}">Ejercicio ${idx + 1}</div>
                 <div ${forScreen ? 'class="pdf-name"' : 'style="font-size:15px;font-weight:800;color:#111;margin-bottom:6px"'}>${item.name}</div>
-                <div ${forScreen ? `class="pdf-sets" style="color:${col}"` : 'style="font-size:22px;font-weight:900;letter-spacing:-1px;line-height:1;color:#111"'}>${item.sets} &times; ${item.reps}${dropsetBadge}</div>
-                ${item.note ? `<div ${forScreen ? 'class="pdf-note"' : 'style="font-size:11px;color:#555;margin-top:6px;padding-top:6px;border-top:1px solid #ddd"'}>${item.note}</div>` : ''}
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+                  <div ${forScreen ? `class="pdf-sets" style="color:${col}"` : 'style="font-size:22px;font-weight:900;letter-spacing:-1px;line-height:1;color:#111"'}>${item.sets} &times; ${item.reps}${dropsetBadge}</div>
+                  ${wt.weight ? `<span style="flex-shrink:0;font-size:12px;font-weight:800;color:${forScreen ? '#111' : '#fff'};background:${forScreen ? col + '22' : '#222'};border:1.5px solid ${forScreen ? col : '#222'};border-radius:999px;padding:4px 11px;white-space:nowrap">${escH(wt.weight)}</span>` : ''}
+                </div>
+                ${wt.tech ? `<div style="font-size:11.5px;color:#555;margin-top:9px;padding-top:8px;border-top:1px solid ${forScreen ? '#e4e4e4' : '#ddd'};line-height:1.4">${escH(wt.tech)}</div>` : ''}
               </div>
             </div>`;
         } else if (item.type === 'speed-run') {
@@ -1359,24 +1657,29 @@ const Users = (() => {
   }
 
   function openExerciseModal(ex = null, idx = null) {
+    const wt = ex ? Generator.weightOf(ex) : { weight: '', tech: '' };      // peso y nota técnica por separado
     App.openModal(ex ? 'Editar ejercicio' : 'Nuevo ejercicio', `
       <div class="form-group">
         <label>Nombre</label>
-        <input id="ex-name" class="form-input" placeholder="Ej: Sentadilla con barra" value="${ex?.name||''}" />
+        <input id="ex-name" class="form-input" placeholder="Ej: Sentadilla con barra" value="${escH(ex?.name||'')}" />
       </div>
       <div class="form-row">
         <div class="form-group">
           <label>Series</label>
-          <input id="ex-sets" class="form-input" type="text" inputmode="text" placeholder="Ej: 4" value="${ex?.sets||3}" />
+          <input id="ex-sets" class="form-input" type="text" inputmode="text" placeholder="Ej: 4" value="${escH(ex?.sets||3)}" />
         </div>
         <div class="form-group">
           <label>Repeticiones</label>
-          <input id="ex-reps" class="form-input" type="text" inputmode="text" placeholder="Ej: 8-12" value="${ex?.reps||10}" />
+          <input id="ex-reps" class="form-input" type="text" inputmode="text" placeholder="Ej: 8-12" value="${escH(ex?.reps||10)}" />
         </div>
       </div>
       <div class="form-group">
-        <label>Nota (opcional)</label>
-        <input id="ex-note" class="form-input" placeholder="Ej: Peso 60 kg" value="${ex?.note||''}" />
+        <label>Peso <span style="font-size:.65em;color:var(--text3);font-weight:400">(opcional)</span></label>
+        <input id="ex-weight" class="form-input" placeholder="Ej: 40kg · 2LAD · Sin peso" value="${escH(wt.weight)}" />
+      </div>
+      <div class="form-group">
+        <label>Nota técnica <span style="font-size:.65em;color:var(--text3);font-weight:400">(opcional)</span></label>
+        <textarea id="ex-tech" class="form-textarea" rows="2" placeholder="Ej: Sin arquear la espalda">${escH(wt.tech)}</textarea>
       </div>
       <div class="form-group toggle-row">
         <label>Dropset</label>
@@ -1395,18 +1698,17 @@ const Users = (() => {
     document.getElementById('ex-save').addEventListener('click', () => {
       const name = document.getElementById('ex-name').value.trim();
       if (!name) { App.toast('Ingresá el nombre'); return; }
-      const noteVal = document.getElementById('ex-note').value.trim();
       const obj = {
+        ...(ex || {}),
         id:      ex?.id || uid(),
         type:    'exercise',
         name,
         sets:    document.getElementById('ex-sets').value.trim() || '3',
         reps:    document.getElementById('ex-reps').value.trim() || '10',
-        note:    noteVal,
         dropset: document.getElementById('ex-dropset').checked,
       };
-      // fecha del último cambio de peso/nota: el generador usa siempre el peso más reciente
-      if (noteVal) obj.noteAt = (ex && (ex.note || '') === noteVal && ex.noteAt) ? ex.noteAt : Date.now();
+      // peso y nota técnica se guardan por separado; la fecha del peso cambia solo si el peso cambió
+      Generator.setWeightAndTech(obj, document.getElementById('ex-weight').value, document.getElementById('ex-tech').value);
       const items = getItems(curRout);
       if (idx !== null) items[idx] = obj; else items.push(obj);
       save(); App.closeModal(); renderItems();
@@ -1469,6 +1771,12 @@ const Users = (() => {
     load();
     seedIfNeeded();
     cleanupPhotos(); // one-time: strip stored photos to free localStorage
+    backupBeforeFolders();
+    try { // se arman las carpetas de todos los alumnos (solo agrega el campo `folder`; no toca rutinas ni ejercicios)
+      let changed = false;
+      users.forEach(u => { if (Organizer.ensure(u) | Organizer.fillMissing(u)) changed = true; });
+      if (changed) save();
+    } catch (e) { /* si falla, las rutinas siguen intactas y visibles en "Todas" */ }
 
     // FAB (lives outside scroll container)
     document.getElementById('add-user-btn').addEventListener('click', () => openUserModal());
@@ -1484,10 +1792,26 @@ const Users = (() => {
     });
 
     document.getElementById('back-to-users').addEventListener('click', () => {
-      curUser = null;
+      if (curUser && curFolder !== null) {          // dentro de una carpeta: vuelve a las carpetas
+        curFolder = null; renderUserDetail(); document.getElementById('app-content').scrollTop = 0;
+        return;
+      }
+      curUser = null; curFolder = null;
       showView('users-list-view');
       renderUsers();
       App.setTitle('Usuarios');
+    });
+
+    document.getElementById('add-folder-btn').addEventListener('click', () => { if (curUser) openFolderModal(); });
+    document.getElementById('edit-folder-btn').addEventListener('click', () => {
+      const f = folderOf(curFolder); if (f) openFolderModal(f);
+    });
+    document.getElementById('weights-table-btn').addEventListener('click', () => {
+      if (!curUser) return;
+      showView('weights-view');
+      App.setTitle('Pesos');
+      document.getElementById('app-content').scrollTop = 0;
+      openWeightsTable(curUser, '');
     });
 
     document.getElementById('edit-user-btn').addEventListener('click', () => {
@@ -1498,12 +1822,29 @@ const Users = (() => {
     });
 
     document.getElementById('add-routine-btn').addEventListener('click', () => openRoutineModal());
-    document.getElementById('generate-routine-btn').addEventListener('click', () => {
-      if (curUser) Generator.open({ user: curUser, uid, save, onSaved: () => renderRoutines() });
+    const openGenerator = inFolder => {
+      if (!curUser) return;
+      const f = inFolder && curFolder && curFolder !== ALL_FOLDER ? folderOf(curFolder) : null;
+      Generator.open({
+        user: curUser, uid, save,
+        presetGroups: f ? Organizer.folderGroups(curUser, f.id) : null,        // desde una carpeta, arranca con sus músculos
+        assignFolder: r => { r.folder = f ? f.id : Organizer.folderFor(curUser, r); },   // y lo generado cae en su carpeta
+        onSaved: () => renderUserDetail(),
+      });
+    };
+    document.getElementById('generate-routine-btn').addEventListener('click', () => openGenerator(true));
+    document.getElementById('generate-routine-root-btn').addEventListener('click', () => openGenerator(false));
+    document.getElementById('weights-btn').addEventListener('click', () => { if (curRout) openWeightsFor(curRout); });
+    document.getElementById('run-routine-btn').addEventListener('click', () => {
+      if (!curRout) return;
+      const r = curRout;
+      Runner.open(r, { onWeights: () => openWeightsFor(r) });
     });
-    document.getElementById('weights-btn').addEventListener('click', () => {
-      if (curRout) Generator.openWeights({ items: getItems(curRout), save, onSaved: () => renderItems() });
-    });
+
+    // buscador general (rutinas y ejercicios de todos los alumnos)
+    const gs = document.getElementById('global-search');
+    gs.addEventListener('input', () => renderSearch(gs.value));
+    document.getElementById('global-search-clear').addEventListener('click', () => { gs.value = ''; renderSearch(''); gs.focus(); });
     document.getElementById('copy-routine-btn').addEventListener('click', () => {
       if (curUser) openCopyFromModal();
     });
@@ -1515,8 +1856,7 @@ const Users = (() => {
     document.getElementById('back-to-user').addEventListener('click', () => {
       curRout = null;
       showView('user-detail-view');
-      renderRoutines();
-      App.setTitle(curUser?.name || 'Usuario');
+      renderUserDetail();                           // vuelve a la carpeta donde estabas
     });
 
     document.getElementById('add-exercise-btn').addEventListener('click', () => openQuickAddModal());
@@ -1543,5 +1883,8 @@ const Users = (() => {
     return null;
   }
 
-  return { init, getRoutineById, downloadRoutinePDF };
+  /* Public: alumno dueño de una rutina (para la Agenda) */
+  function ownerOf(routineId) { return users.find(u => (u.routines || []).some(r => r.id === routineId)) || null; }
+
+  return { init, getRoutineById, downloadRoutinePDF, exMetaHTML, runRoutine, openWeightsFor, openRoutineFor, ownerOf };
 })();

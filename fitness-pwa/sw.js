@@ -1,12 +1,16 @@
-const CACHE_NAME = 'fitpro-v48';
+const CACHE_NAME = 'fitpro-v50';
 const ASSETS = [
   './',
   './index.html',
   './css/styles.css',
+  './css/modern.css',
   './js/app.js',
   './js/timer.js',
   './js/calendar.js',
   './js/generator.js',
+  './js/organizer.js',
+  './js/weights.js',
+  './js/runner.js',
   './js/users.js',
   './manifest.json',
   './apple-touch-icon.png'
